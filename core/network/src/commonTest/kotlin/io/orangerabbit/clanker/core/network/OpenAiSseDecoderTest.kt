@@ -87,6 +87,25 @@ class OpenAiSseDecoderTest {
     }
 
     @Test
+    fun imageDeltaBecomesImageEvent() {
+        val dataUrl = "data:image/png;base64,iVBORw0KGgo="
+        val payload =
+            """{"choices":[{"index":0,"delta":{"images":[{"type":"image_url","image_url":{"url":"$dataUrl"}}]},"finish_reason":null}]}"""
+        assertEquals(listOf(ChatEvent.ImageDelta(dataUrl)), decoder.decode(payload))
+    }
+
+    @Test
+    fun imageAndTextInSameDeltaEmitBothInOrder() {
+        val dataUrl = "data:image/png;base64,AAAA"
+        val payload =
+            """{"choices":[{"index":0,"delta":{"content":"here","images":[{"type":"image_url","image_url":{"url":"$dataUrl"}}]},"finish_reason":null}]}"""
+        assertEquals(
+            listOf(ChatEvent.TextDelta("here"), ChatEvent.ImageDelta(dataUrl)),
+            decoder.decode(payload),
+        )
+    }
+
+    @Test
     fun usageOnlyChunkBecomesUsageReport() {
         val payload = """
             {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"cost":0.00012}}

@@ -30,6 +30,12 @@ data class ChatRequest(
     val temperature: Double? = null,
     val maxTokens: Int? = null,
     val parallelToolCalls: Boolean? = null,
+    /**
+     * Output modalities requested from the model. Empty = the provider default (text). Pass
+     * `["image", "text"]` against an image-output model (e.g. `google/gemini-2.5-flash-image`)
+     * to ask for generated images, surfaced as [ChatEvent.ImageDelta].
+     */
+    val modalities: List<String> = emptyList(),
 )
 
 /** A tool advertised to the model: name + JSON-Schema parameters. */
@@ -52,7 +58,7 @@ data class ModelInfo(
     val capabilities: Set<Capability>,
 )
 
-enum class Capability { Streaming, ToolCalling, Vision, Reasoning }
+enum class Capability { Streaming, ToolCalling, Vision, Reasoning, ImageOutput }
 
 enum class FinishReason { Stop, ToolCalls, Length, ContentFilter, Error }
 
@@ -79,6 +85,9 @@ data class ApiError(
 sealed interface ChatEvent {
     data class TextDelta(val text: String) : ChatEvent
     data class ReasoningDelta(val block: ReasoningBlock) : ChatEvent
+
+    /** A fully-formed generated image as a `data:` URL (base64). Image deltas are not chunked. */
+    data class ImageDelta(val dataUrl: String) : ChatEvent
     data class ToolCallDelta(
         val index: Int,
         val id: String?,

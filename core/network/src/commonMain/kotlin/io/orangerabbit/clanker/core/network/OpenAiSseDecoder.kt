@@ -48,6 +48,10 @@ class OpenAiSseDecoder(
             choice.delta.reasoning?.let {
                 events += ChatEvent.ReasoningDelta(ReasoningBlock(type = "reasoning", text = it))
             }
+            choice.delta.images.forEach { img ->
+                img.imageUrl?.url?.takeIf { it.isNotEmpty() }
+                    ?.let { events += ChatEvent.ImageDelta(it) }
+            }
             choice.delta.toolCalls.forEach { tc ->
                 events += ChatEvent.ToolCallDelta(
                     index = tc.index,
@@ -114,7 +118,18 @@ private data class Delta(
     val content: String? = null,
     val reasoning: String? = null,
     @SerialName("tool_calls") val toolCalls: List<ToolCallDto> = emptyList(),
+    /** Generated images (image-output models). Each carries a `data:` URL in [ImageDto.imageUrl]. */
+    val images: List<ImageDto> = emptyList(),
 )
+
+@Serializable
+private data class ImageDto(
+    val type: String? = null,
+    @SerialName("image_url") val imageUrl: ImageUrlDto? = null,
+)
+
+@Serializable
+private data class ImageUrlDto(val url: String? = null)
 
 @Serializable
 private data class ToolCallDto(

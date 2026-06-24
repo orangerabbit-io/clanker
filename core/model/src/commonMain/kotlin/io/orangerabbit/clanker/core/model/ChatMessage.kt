@@ -25,6 +25,12 @@ sealed interface ChatMessage {
         override val id: MessageId,
         val content: String,
         val attachments: List<Attachment> = emptyList(),
+        /**
+         * Inline image inputs as `data:` URLs (base64). The disk-backed [attachments] path is the
+         * eventual home (see [Attachment.Image]); for the in-memory MVP, multimodal vision input
+         * rides here and is encoded to the OpenAI `image_url` content-array form at request time.
+         */
+        val imageUrls: List<String> = emptyList(),
         override val lifecycle: MsgLifecycle = MsgLifecycle.Complete,
     ) : ChatMessage
 
@@ -35,6 +41,12 @@ sealed interface ChatMessage {
         val toolCalls: List<ToolCall> = emptyList(),
         /** Opaque structured reasoning — must round-trip verbatim (see [ReasoningBlock]). */
         val reasoning: List<ReasoningBlock> = emptyList(),
+        /**
+         * Images emitted by an image-generation model, as `data:` URLs (base64). Display-only on
+         * resend for now — the wire encoder does not echo these back as assistant content, since
+         * the Chat Completions input schema has no assistant-image slot.
+         */
+        val imageUrls: List<String> = emptyList(),
         override val lifecycle: MsgLifecycle = MsgLifecycle.Complete,
     ) : ChatMessage
 

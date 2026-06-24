@@ -82,6 +82,69 @@ class OpenAiCompatibleProviderTest {
     }
 
     @Test
+    fun modalitiesAreSentWhenRequested() = runTest {
+        var captured: HttpRequestData? = null
+        val engine = MockEngine { request ->
+            captured = request
+            respond(
+                content = "data: [DONE]\n\n",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "text/event-stream"),
+            )
+        }
+        val request = sampleRequest.copy(modalities = listOf("image", "text"))
+        provider(engine).streamChat(request).toList()
+
+        val bodyText = (requireNotNull(captured).body as TextContent).text
+        assertTrue(bodyText.contains("\"modalities\":[\"image\",\"text\"]"), "body missing modalities: $bodyText")
+    }
+
+    @Test
+    fun userImagesBecomeContentPartArray() = runTest {
+        var captured: HttpRequestData? = null
+        val engine = MockEngine { request ->
+            captured = request
+            respond(
+                content = "data: [DONE]\n\n",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "text/event-stream"),
+            )
+        }
+        val dataUrl = "data:image/png;base64,AAAA"
+        val request = ChatRequest(
+            model = "openai/gpt-4o",
+            messages = listOf(ChatMessage.User(MessageId("1"), "describe", imageUrls = listOf(dataUrl))),
+        )
+        provider(engine).streamChat(request).toList()
+
+        val bodyText = (requireNotNull(captured).body as TextContent).text
+        assertTrue(bodyText.contains("\"type\":\"text\""), "missing text part: $bodyText")
+        assertTrue(bodyText.contains("\"type\":\"image_url\""), "missing image part: $bodyText")
+        assertTrue(bodyText.contains(dataUrl), "missing data url: $bodyText")
+    }
+
+    @Test
+    fun imageOutputModelGainsImageOutputCapability() = runTest {
+        val body = """
+            {"data":[
+              {"id":"google/gemini-2.5-flash-image","name":"Gemini Image",
+               "architecture":{"input_modalities":["text","image"],"output_modalities":["text","image"]},
+               "supported_parameters":[]}
+            ]}
+        """.trimIndent()
+        val engine = MockEngine {
+            respond(
+                content = body,
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val model = provider(engine).listModels().single()
+        assertTrue(Capability.ImageOutput in model.capabilities)
+        assertTrue(Capability.Vision in model.capabilities)
+    }
+
+    @Test
     fun httpErrorStatusBecomesFailedEvent() = runTest {
         val engine = MockEngine {
             respondError(

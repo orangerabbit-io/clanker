@@ -27,6 +27,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
@@ -131,19 +136,46 @@ class OpenAiCompatibleProvider(
         maxTokens = maxTokens,
         tools = tools.takeIf { it.isNotEmpty() }?.map { it.toWire() },
         parallelToolCalls = parallelToolCalls,
+        modalities = modalities.takeIf { it.isNotEmpty() },
     )
 
     private fun ChatMessage.toWire(): WireMessage = when (this) {
-        is ChatMessage.System -> WireMessage(role = "system", content = content)
-        is ChatMessage.User -> WireMessage(role = "user", content = content)
+        is ChatMessage.System -> WireMessage(role = "system", content = textContent(content))
+        is ChatMessage.User -> WireMessage(role = "user", content = userContent(content, imageUrls))
         is ChatMessage.Assistant -> WireMessage(
             role = "assistant",
-            content = content,
+            content = content?.let { textContent(it) },
             toolCalls = toolCalls.takeIf { it.isNotEmpty() }?.map {
                 WireToolCall(id = it.id, function = WireFunctionCall(it.name, it.argumentsJson))
             },
         )
-        is ChatMessage.Tool -> WireMessage(role = "tool", content = content, toolCallId = toolCallId)
+        is ChatMessage.Tool -> WireMessage(role = "tool", content = textContent(content), toolCallId = toolCallId)
+    }
+
+    /** Plain-string message content (the common case). */
+    private fun textContent(text: String): JsonElement = JsonPrimitive(text)
+
+    /**
+     * User content. With no images this is the plain string form; with images it becomes the
+     * OpenAI multimodal content array (`[{type:text},{type:image_url,image_url:{url:…}}]`), which
+     * is the wire shape vision models require for inline base64 `data:` URLs.
+     */
+    private fun userContent(text: String, imageUrls: List<String>): JsonElement {
+        if (imageUrls.isEmpty()) return JsonPrimitive(text)
+        return buildJsonArray {
+            if (text.isNotEmpty()) {
+                addJsonObject {
+                    put("type", "text")
+                    put("text", text)
+                }
+            }
+            imageUrls.forEach { url ->
+                addJsonObject {
+                    put("type", "image_url")
+                    putJsonObject("image_url") { put("url", url) }
+                }
+            }
+        }
     }
 
     private fun ToolSpec.toWire() = WireTool(
@@ -176,6 +208,7 @@ private fun ModelDto.toModelInfo(): ModelInfo {
         if (supportedParameters.any { it == "tools" }) add(Capability.ToolCalling)
         if (supportedParameters.any { it.contains("reasoning") }) add(Capability.Reasoning)
         if (architecture?.inputModalities?.any { it == "image" } == true) add(Capability.Vision)
+        if (architecture?.outputModalities?.any { it == "image" } == true) add(Capability.ImageOutput)
     }
     return ModelInfo(
         id = id,
@@ -202,6 +235,7 @@ private data class ModelDto(
 @Serializable
 private data class ArchitectureDto(
     @SerialName("input_modalities") val inputModalities: List<String> = emptyList(),
+    @SerialName("output_modalities") val outputModalities: List<String> = emptyList(),
 )
 
 @Serializable
@@ -213,12 +247,14 @@ private data class ChatCompletionRequest(
     @SerialName("max_tokens") val maxTokens: Int? = null,
     val tools: List<WireTool>? = null,
     @SerialName("parallel_tool_calls") val parallelToolCalls: Boolean? = null,
+    val modalities: List<String>? = null,
 )
 
 @Serializable
 private data class WireMessage(
     val role: String,
-    val content: String? = null,
+    // String for plain text, or a content-part array for multimodal user messages.
+    val content: JsonElement? = null,
     @SerialName("tool_calls") val toolCalls: List<WireToolCall>? = null,
     @SerialName("tool_call_id") val toolCallId: String? = null,
 )
