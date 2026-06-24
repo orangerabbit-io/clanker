@@ -59,12 +59,19 @@ class ChatViewModel(
             val provider = openRouterProvider(apiKey = current.apiKey, engine = engine)
             val request = ChatRequest(model = current.model, messages = history)
             val buffer = StringBuilder()
+            var lastUiUpdate = 0L
             try {
                 provider.streamChat(request).collect { event ->
                     when (event) {
                         is ChatEvent.TextDelta -> {
                             buffer.append(event.text)
-                            updateAssistant(assistantId, buffer.toString(), MsgLifecycle.Streaming)
+                            // Throttle recomposition to ~frame cadence; the final text is always
+                            // flushed on Finished/Failed below.
+                            val now = System.currentTimeMillis()
+                            if (now - lastUiUpdate >= UI_THROTTLE_MS) {
+                                lastUiUpdate = now
+                                updateAssistant(assistantId, buffer.toString(), MsgLifecycle.Streaming)
+                            }
                         }
                         is ChatEvent.Finished ->
                             updateAssistant(assistantId, buffer.toString(), MsgLifecycle.Complete)
@@ -99,4 +106,8 @@ class ChatViewModel(
     }
 
     private fun newId(): String = UUID.randomUUID().toString()
+
+    private companion object {
+        const val UI_THROTTLE_MS = 50L
+    }
 }

@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mikepenz.markdown.m3.Markdown
 import io.orangerabbit.clanker.core.model.ChatMessage
 import io.orangerabbit.clanker.core.model.MsgLifecycle
 
@@ -127,10 +128,15 @@ private fun MessageBubble(message: ChatMessage) {
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Text(text = label, style = MaterialTheme.typography.labelSmall)
-            val display = body.ifEmpty {
-                if (message.lifecycle == MsgLifecycle.Streaming) "…" else ""
+            when {
+                body.isEmpty() && message.lifecycle == MsgLifecycle.Streaming ->
+                    Text(text = "…", style = MaterialTheme.typography.bodyMedium)
+                // Assistant replies are markdown; user/system/tool stay plain text.
+                message is ChatMessage.Assistant && body.isNotEmpty() ->
+                    Markdown(content = body)
+                else ->
+                    Text(text = body, style = MaterialTheme.typography.bodyMedium)
             }
-            Text(text = display, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
