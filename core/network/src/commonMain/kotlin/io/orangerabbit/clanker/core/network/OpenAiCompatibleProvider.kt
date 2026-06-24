@@ -3,6 +3,7 @@ package io.orangerabbit.clanker.core.network
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -60,6 +61,15 @@ class OpenAiCompatibleProvider(
 
     private fun newClient() = HttpClient(engine) {
         install(ContentNegotiation) { json(json) }
+        // Image generation can stall for a long time before any bytes arrive (the model renders
+        // before emitting), so the default ~10s socket read timeout trips mid-generation. Allow a
+        // long inter-byte gap and an unbounded total request (the SSE stream length is open-ended).
+        // requestTimeoutMillis is left unset (no cap on total request duration — the SSE stream is
+        // open-ended); only the connect and inter-byte read timeouts are bounded.
+        install(HttpTimeout) {
+            connectTimeoutMillis = CONNECT_TIMEOUT_MS
+            socketTimeoutMillis = SOCKET_TIMEOUT_MS
+        }
     }
 
     override fun streamChat(request: ChatRequest): Flow<ChatEvent> = channelFlow {
@@ -213,6 +223,12 @@ class OpenAiCompatibleProvider(
             parameters = json.decodeFromString(JsonObject.serializer(), parametersJsonSchema),
         ),
     )
+
+    private companion object {
+        const val CONNECT_TIMEOUT_MS = 30_000L
+        // Inter-byte read timeout. Image models can think for ~minute(s) before emitting bytes.
+        const val SOCKET_TIMEOUT_MS = 180_000L
+    }
 }
 
 /** OpenRouter = OpenAI-compatible + attribution headers (recommended for app identification). */
