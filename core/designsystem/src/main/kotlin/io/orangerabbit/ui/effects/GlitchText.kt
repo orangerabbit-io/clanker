@@ -43,6 +43,8 @@ fun GlitchText(
     color: Color = Color.Unspecified,
     style: TextStyle = LocalTextStyle.current,
     decryptOnAppear: Boolean = true,
+    /** When false, only the one-shot decrypt plays — no recurring chromatic-aberration burst. */
+    periodicGlitch: Boolean = true,
     glitchColors: Pair<Color, Color> = MaterialTheme.colorScheme.secondary to MaterialTheme.colorScheme.tertiary,
 ) {
     val fx = LocalCyberpunkFx.current
@@ -69,8 +71,8 @@ fun GlitchText(
 
     // Periodic chromatic-aberration burst.
     var glitching by remember { mutableStateOf(false) }
-    LaunchedEffect(fx.glitch, fx.intensity) {
-        if (!fx.glitch) {
+    LaunchedEffect(fx.glitch, fx.intensity, periodicGlitch) {
+        if (!fx.glitch || !periodicGlitch) {
             glitching = false
             return@LaunchedEffect
         }

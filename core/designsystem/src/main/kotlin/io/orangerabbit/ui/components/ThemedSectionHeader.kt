@@ -28,10 +28,10 @@ fun ThemedSectionHeader(
     modifier: Modifier = Modifier,
     accentColor: Color = MaterialTheme.colorScheme.primary,
 ) {
-    // Tight letter-spacing keeps the "//" prefix close to the title.
+    // Zero letter-spacing keeps the "//" slashes tight; a single space separates them from the title.
     val titleStyle = MaterialTheme.typography.labelLarge.copy(
         fontWeight = FontWeight.Bold,
-        letterSpacing = 0.5.sp,
+        letterSpacing = 0.sp,
     )
 
     Row(
@@ -41,9 +41,10 @@ fun ThemedSectionHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GlitchText(
-            text = "//${title.uppercase()}",
+            text = "// ${title.uppercase()}",
             color = accentColor,
             style = titleStyle,
+            periodicGlitch = false,
         )
         Spacer(modifier = Modifier.width(12.dp))
         Box(

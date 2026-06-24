@@ -111,6 +111,7 @@ fun ChatScreen(
                 text = "CLANKER",
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.headlineMedium,
+                periodicGlitch = false,
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 ThemedStatusIndicator(label = "", isOnline = state.apiKey.isNotBlank())
@@ -123,16 +124,17 @@ fun ChatScreen(
                 }
             }
         }
-        // Active model + running cost.
+        // Active model + running cost. Plain text — this updates during use, so no animation.
         val activeModel = if (state.imageMode) state.effectiveImageModel else state.effectiveChatModel
-        GlitchText(
+        Text(
             text = buildString {
-                append("//")
+                append("// ")
                 append(if (state.imageMode) "IMG " else "CHAT ")
                 append(activeModel)
                 if (state.costUsd > 0.0) append("  $${"%.5f".format(state.costUsd)}")
             },
-            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp),
+            style = MaterialTheme.typography.labelSmall,
+            letterSpacing = 0.sp,
             color = MaterialTheme.colorScheme.tertiary,
             modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
         )
@@ -275,19 +277,19 @@ private fun MessageBubble(message: ChatMessage, onImageTap: (ImageBitmap) -> Uni
 
     ThemedCard(borderColor = accent, glowColor = accent) {
         Column {
-            GlitchText(
-                text = "//${label.uppercase()}",
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp),
+            Text(
+                text = "// ${label.uppercase()}",
+                style = MaterialTheme.typography.labelSmall,
+                letterSpacing = 0.sp,
                 color = accent,
             )
             when {
                 body.isEmpty() && images.isEmpty() && message.lifecycle == MsgLifecycle.Streaming ->
                     Text(text = "▌", style = MaterialTheme.typography.bodyMedium)
-                // Assistant replies render as markdown (formatting/code), so they keep plain Text.
                 message is ChatMessage.Assistant && body.isNotEmpty() ->
                     Markdown(content = body)
                 body.isNotEmpty() ->
-                    GlitchText(
+                    Text(
                         text = body,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,

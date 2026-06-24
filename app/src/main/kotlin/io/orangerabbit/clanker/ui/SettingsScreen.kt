@@ -79,6 +79,7 @@ fun SettingsScreen(viewModel: ChatViewModel, onBack: () -> Unit, modifier: Modif
                 text = "SETTINGS",
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.headlineMedium,
+                periodicGlitch = false,
             )
             ThemedButton(onClick = onBack, accent = ThemedButtonAccent.Neutral) {
                 Text("← BACK", style = MaterialTheme.typography.labelMedium)
