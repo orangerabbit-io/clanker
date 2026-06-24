@@ -1,5 +1,6 @@
 package io.orangerabbit.clanker.di
 
+import android.content.Context
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Provides
@@ -23,4 +24,9 @@ interface AppGraph {
     @Provides
     @SingleIn(AppScope::class)
     fun httpEngine(): HttpClientEngine = OkHttp.create()
+
+    @DependencyGraph.Factory
+    fun interface Factory {
+        fun create(@Provides context: Context): AppGraph
+    }
 }

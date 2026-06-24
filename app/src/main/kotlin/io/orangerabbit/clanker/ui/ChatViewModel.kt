@@ -11,6 +11,7 @@ import io.orangerabbit.clanker.core.network.ChatEvent
 import io.orangerabbit.clanker.core.network.ChatRequest
 import io.orangerabbit.clanker.core.network.ModelInfo
 import io.orangerabbit.clanker.core.network.openRouterProvider
+import io.orangerabbit.clanker.data.SecretStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -25,6 +26,7 @@ import java.util.UUID
 @Inject
 class ChatViewModel(
     private val engine: HttpClientEngine,
+    private val secrets: SecretStore,
 ) : ViewModel() {
 
     data class UiState(
@@ -40,7 +42,16 @@ class ChatViewModel(
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
 
-    fun setApiKey(value: String) = _state.update { it.copy(apiKey = value) }
+    init {
+        viewModelScope.launch {
+            secrets.loadApiKey()?.let { stored -> _state.update { it.copy(apiKey = stored) } }
+        }
+    }
+
+    fun setApiKey(value: String) {
+        _state.update { it.copy(apiKey = value) }
+        viewModelScope.launch { secrets.saveApiKey(value) }
+    }
     fun setModel(value: String) = _state.update { it.copy(model = value) }
 
     /** Fetches the provider's model catalogue for the dropdown. No-op without an API key. */

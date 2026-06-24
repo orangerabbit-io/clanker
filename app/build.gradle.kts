@@ -52,4 +52,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     implementation(libs.markdown.renderer.m3)
+
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.tink.android)
 }
