@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launch theme: dark, no action bar, transparent system bars for edge-to-edge.
+         Compose installs the cyberpunk MaterialTheme (AppTheme); this only sets the pre-Compose
+         window background so launch shows the dark surface, not a white flash. -->
+    <style name="Theme.Clanker" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/cyber_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
