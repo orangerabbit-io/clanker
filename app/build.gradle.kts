@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application) // AGP 9 compiles Kotlin built-in; no kotlin.android
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.metro)
+}
+
+// Release signing is driven by a gitignored `keystore.properties` (see keystore.properties.template).
+// When it's absent the release build still configures but comes out unsigned, so CI and other
+// developers aren't blocked.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
 }
 
 android {
@@ -20,9 +30,22 @@ android {
         compose = true
     }
 
+    signingConfigs {
+        if (keystoreProps.isNotEmpty()) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Only attach the signing config when keystore.properties supplied one.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

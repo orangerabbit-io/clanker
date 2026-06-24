@@ -10,8 +10,11 @@ result-*
 
 # Android
 local.properties
+keystore.properties
 *.apk
 *.aab
+*.jks
+*.keystore
 captures/
 
 # IDE
