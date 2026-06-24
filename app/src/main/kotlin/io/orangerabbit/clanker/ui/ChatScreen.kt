@@ -22,6 +22,15 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,8 +56,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mikepenz.markdown.m3.Markdown
 import io.orangerabbit.clanker.core.model.ChatMessage
 import io.orangerabbit.clanker.core.model.MsgLifecycle
-import io.orangerabbit.ui.components.ThemedButton
-import io.orangerabbit.ui.components.ThemedButtonAccent
 import io.orangerabbit.ui.components.ThemedCard
 import io.orangerabbit.ui.components.ThemedStatusIndicator
 import io.orangerabbit.ui.components.ThemedTextField
@@ -103,10 +110,14 @@ fun ChatScreen(
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.headlineMedium,
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 ThemedStatusIndicator(label = "", isOnline = state.apiKey.isNotBlank())
-                ThemedButton(onClick = onOpenSettings, accent = ThemedButtonAccent.Neutral) {
-                    Text("⚙ CFG", style = MaterialTheme.typography.labelMedium)
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = "settings",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -160,49 +171,72 @@ fun ChatScreen(
                         )
                     }
                 }
-                ThemedButton(onClick = viewModel::clearPendingImages, accent = ThemedButtonAccent.Neutral) {
-                    Text("CLEAR", style = MaterialTheme.typography.labelSmall)
+                IconButton(onClick = viewModel::clearPendingImages) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "clear attachments",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
 
         // --- Compose row: image-mode toggle, attach, message field, send/stop ---
+        // Icon controls keep the row compact so the message box gets the width; the field is
+        // bounded (min/max) so a long multi-line draft scrolls internally instead of growing up
+        // and hiding the transcript. Bottom-aligned so icons stay with the last line.
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            ThemedButton(
-                onClick = { viewModel.setImageMode(!state.imageMode) },
-                accent = ThemedButtonAccent.Tertiary,
-                filled = state.imageMode,
-            ) { Text("IMG", style = MaterialTheme.typography.labelMedium) }
-            ThemedButton(
-                onClick = { imagePicker.launch("image/*") },
-                accent = ThemedButtonAccent.Tertiary,
-            ) { Text("+", style = MaterialTheme.typography.labelLarge) }
+            IconButton(onClick = { viewModel.setImageMode(!state.imageMode) }) {
+                Icon(
+                    Icons.Filled.AutoAwesome,
+                    contentDescription = "image generation mode",
+                    tint = if (state.imageMode) MaterialTheme.colorScheme.tertiary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = { imagePicker.launch("image/*") }) {
+                Icon(
+                    Icons.Filled.AddPhotoAlternate,
+                    contentDescription = "attach image",
+                    tint = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             ThemedTextField(
                 value = draft,
                 onValueChange = { draft = it },
                 label = "message",
                 keyboardType = KeyboardType.Text,
                 singleLine = false,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).heightIn(min = 56.dp, max = 140.dp),
             )
             if (state.streaming) {
-                ThemedButton(onClick = viewModel::stop, accent = ThemedButtonAccent.Secondary, filled = true) {
-                    Text("STOP", style = MaterialTheme.typography.labelLarge)
+                IconButton(onClick = viewModel::stop) {
+                    Icon(
+                        Icons.Filled.Stop,
+                        contentDescription = "stop generation",
+                        tint = MaterialTheme.colorScheme.secondary,
+                    )
                 }
             } else {
-                ThemedButton(
+                val canSend = (draft.isNotBlank() || state.pendingImages.isNotEmpty()) && state.apiKey.isNotBlank()
+                IconButton(
                     onClick = {
                         viewModel.send(draft)
                         draft = ""
                     },
-                    accent = ThemedButtonAccent.Primary,
-                    filled = true,
-                    enabled = (draft.isNotBlank() || state.pendingImages.isNotEmpty()) && state.apiKey.isNotBlank(),
-                ) { Text("SEND", style = MaterialTheme.typography.labelLarge) }
+                    enabled = canSend,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "send",
+                        tint = if (canSend) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
