@@ -116,7 +116,7 @@ New unit alongside `SystemPrompt`. Provider-agnostic orchestrator returning a `F
 sealed interface AgentEvent {
   data class TextDelta(val text: String) : AgentEvent
   data class ToolCallStarted(val call: ToolCall) : AgentEvent
-  data class ToolFinished(val reply: ChatMessage.Tool, val display: ToolDisplay) : AgentEvent
+  data class ToolFinished(val reply: ChatMessage.Tool, val display: ToolDisplay?) : AgentEvent
   data class Usage(val report: UsageReport) : AgentEvent
   data class Finished(val reason: AgentFinish) : AgentEvent   // Stop | IterationCapReached | Error
   data class Error(val error: ApiError) : AgentEvent
