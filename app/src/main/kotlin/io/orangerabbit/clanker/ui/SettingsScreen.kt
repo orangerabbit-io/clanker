@@ -1,7 +1,5 @@
 package io.orangerabbit.clanker.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,11 +25,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -44,25 +40,10 @@ import io.orangerabbit.ui.components.ThemedInfoRow
 import io.orangerabbit.ui.components.ThemedSectionHeader
 import io.orangerabbit.ui.components.ThemedSliderRow
 import io.orangerabbit.ui.effects.GlitchText
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-
-private const val USE_DEFAULT = "(use default)"
 
 @Composable
 fun SettingsScreen(viewModel: ChatViewModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    val cardPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            scope.launch(Dispatchers.IO) {
-                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                if (bytes != null) viewModel.applyCardBytes(bytes)
-            }
-        }
-    }
 
     Column(
         modifier = modifier
@@ -152,44 +133,22 @@ fun SettingsScreen(viewModel: ChatViewModel, onBack: () -> Unit, modifier: Modif
             imageOnly = true,
         )
 
-        // Per-character overrides — only meaningful once a persona is loaded.
-        state.character?.let { card ->
-            ThemedSectionHeader(
-                title = "${card.name} overrides",
-                accentColor = MaterialTheme.colorScheme.secondary,
-            )
-            ModelDropdown(
-                label = "chat model",
-                selected = state.characterChatModel ?: USE_DEFAULT,
-                models = state.availableModels,
-                loading = state.modelsLoading,
-                onRequestModels = viewModel::loadModels,
-                includeDefaultOption = true,
-                onSelect = { viewModel.setCharacterModels(it, state.characterImageModel) },
-            )
-            ModelDropdown(
-                label = "image model",
-                selected = state.characterImageModel ?: USE_DEFAULT,
-                models = state.availableModels,
-                loading = state.modelsLoading,
-                onRequestModels = viewModel::loadModels,
-                includeDefaultOption = true,
-                imageOnly = true,
-                onSelect = { viewModel.setCharacterModels(state.characterChatModel, it) },
-            )
-        }
-
-        ThemedSectionHeader(title = "persona", accentColor = MaterialTheme.colorScheme.secondary)
-        ThemedButton(
-            onClick = { cardPicker.launch("*/*") },
-            accent = ThemedButtonAccent.Secondary,
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            Text(
-                state.character?.let { "PERSONA: ${it.name}" } ?: "IMPORT PERSONA (PNG/JSON)",
-                style = MaterialTheme.typography.labelMedium,
-            )
-        }
+        ThemedSectionHeader(title = "agent", accentColor = MaterialTheme.colorScheme.secondary)
+        OutlinedTextField(
+            value = state.agentsMd,
+            onValueChange = viewModel::setAgentsMd,
+            label = { Text("AGENT INSTRUCTIONS (AGENTS.md)", style = MaterialTheme.typography.labelMedium) },
+            placeholder = {
+                Text(
+                    "Project conventions and preferences, e.g. 'use conventional commits.'",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            shape = MaterialTheme.shapes.small,
+            textStyle = MaterialTheme.typography.bodyLarge,
+            minLines = 4,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
 
         ThemedSectionHeader(title = "usage", accentColor = MaterialTheme.colorScheme.tertiary)
         ThemedInfoRow(
@@ -248,7 +207,6 @@ private fun ModelDropdown(
     onRequestModels: () -> Unit,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
-    includeDefaultOption: Boolean = false,
     imageOnly: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -297,12 +255,6 @@ private fun ModelDropdown(
         ) {
             if (loading) {
                 DropdownMenuItem(text = { Text("Loading models…") }, onClick = {}, enabled = false)
-            }
-            if (includeDefaultOption) {
-                DropdownMenuItem(
-                    text = { Text(USE_DEFAULT, style = MaterialTheme.typography.bodyMedium) },
-                    onClick = { onSelect(""); expanded = false },
-                )
             }
             filtered.forEach { model ->
                 DropdownMenuItem(
