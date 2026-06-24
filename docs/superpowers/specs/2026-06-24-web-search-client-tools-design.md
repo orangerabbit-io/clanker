@@ -15,8 +15,9 @@ This is path **B** from the scope discussion (client-side agent loop + client-ex
 ### In scope
 - New `:core:tools` KMP module: `Tool` / `ToolProvider` / `ToolRegistry` / `ToolResult`, plus an `ExaClient` and the two tools (`ExaSearchTool`, `WebFetchTool`).
 - New `AgentLoop` in `:core:agent`: stream → accumulate tool_calls → dispatch → re-request until `Finished(Stop)`, with an iteration cap and clean cancellation.
-- `:core:network`: wire-encode `ChatMessage.Tool` (`role:tool`) replies.
 - `:app`: drive the loop from `ChatViewModel`; Exa key in the existing Tink `SecretStore` + a Settings field; collapsed tool-call transcript cards + source chips.
+
+`:core:network` needs **no production change** — `ChatMessage.Tool` already wire-encodes (see §3 / §6); this increment only adds a round-trip test if one is absent.
 
 ### Out of scope (deferred; interfaces accommodate them without rework)
 - RiskLevel-keyed concurrency (this slice dispatches **serially**).
@@ -55,10 +56,14 @@ interface Tool {
 
 interface ToolProvider { suspend fun tools(): List<Tool> }
 
-data class ToolResult(val content: String, val isError: Boolean)
+// content: model-readable text fed back as the role:tool reply.
+// display: optional structured data for the UI card (e.g. search results), so the
+//          UI never parses content strings. Null for tools with nothing to show.
+data class ToolResult(val content: String, val isError: Boolean, val display: ToolDisplay? = null)
 
-// ctx carries the Exa-backed dependencies the tools need at call time.
-interface ToolContext { /* e.g. exaClient access; expand as tools are added */ }
+// ctx carries the client-execution dependencies tools need at call time.
+// This increment's only dependency is the Exa client.
+interface ToolContext { val exaClient: ExaClient }
 ```
 
 `ToolSource`, `ToolExecution`, `RiskLevel` are defined in full per §8 (`Native | Ssh | Mcp`, `ClientExecuted | ProviderExecuted`, `ReadOnly | Mutating | Destructive`) so later increments add variants without redefining the enums; only the `Native` / `ClientExecuted` / `ReadOnly` paths are wired now.
@@ -66,9 +71,9 @@ interface ToolContext { /* e.g. exaClient access; expand as tools are added */ }
 ### 4.2 `ToolRegistry`
 
 Aggregates `ToolProvider`s and owns the boundary between the loop and individual tools.
-- `suspend fun toolSpecs(): List<ToolSpec>` — produces the `ChatRequest.tools` array (OpenAI function-tool shape: `name`, `description`, `parameters`).
-- `suspend fun dispatch(call: ToolCall): ChatMessage.Tool` — resolves the tool by `call.name`, parses/validates/clamps `call.argumentsJson` against the tool's schema, runs `execute()` under `withTimeout(tool.timeoutMs)`, and returns exactly one `ChatMessage.Tool` keyed to `call.id`.
-- **Invariant (load-bearing):** every dispatched call returns a `ChatMessage.Tool`, never null and never an exception that escapes. Unknown tool, schema-invalid args, timeout, or `execute()` failure all map to `ChatMessage.Tool(isError = true)` with a descriptive message. This guarantees the §6 "every `tool_call_id` gets exactly one `role:tool` reply" rule.
+- `suspend fun toolSpecs(): List<ToolSpec>` — produces the `ChatRequest.tools` array. Each tool's `parameters: JsonObject` is serialized into the existing `ToolSpec.parametersJsonSchema: String` here (`LlmProvider.kt:42`) — this serialization is the registry's responsibility and the one type-conversion at the registry→network boundary.
+- `suspend fun dispatch(call: ToolCall): DispatchOutcome` — resolves the tool by `call.name`, parses/validates/clamps `call.argumentsJson` against the tool's schema, runs `execute()` under `withTimeout(tool.timeoutMs)`, and returns a `DispatchOutcome(reply: ChatMessage.Tool, display: ToolDisplay?)` keyed to `call.id`. The registry builds the outcome from the tool's `ToolResult` (`reply` from `content`/`isError`, `display` passed through). The loop appends `reply` to history and forwards `display` to the UI via `AgentEvent.ToolFinished` (§5).
+- **Invariant (load-bearing):** every dispatched call yields exactly one `ChatMessage.Tool`, never null and never an exception that escapes. Unknown tool, schema-invalid args, timeout, or `execute()` failure all map to `ChatMessage.Tool(isError = true)` with a descriptive message (and `display = null`). This guarantees the §6 "every `tool_call_id` gets exactly one `role:tool` reply" rule.
 
 ### 4.3 `ExaClient` (Ktor)
 
@@ -89,7 +94,7 @@ Both are `Native` / `ClientExecuted` / `ReadOnly`. Model output is treated as ho
 
 `NativeToolProvider` returns these two tools; the registry aggregates it.
 
-The search tool's `ToolResult.content` is a compact, model-readable rendering of results (index, title, URL, highlight) so the model can cite sources; the raw structured results are also surfaced to the UI via the loop event (§5) for the source chips.
+The search tool's `ToolResult.content` is a compact, model-readable rendering of results (index, title, URL, highlight) so the model can cite sources; `ToolResult.display` carries the structured `{title, url}` list, which the registry forwards into `AgentEvent.ToolFinished` (§5) for the source chips, so the UI never parses the content string.
 
 ## 5. `:core:agent` — `AgentLoop`
 
@@ -100,10 +105,10 @@ New unit alongside `SystemPrompt`. Provider-agnostic orchestrator returning a `F
 1. Build request: `composeSystemPrompt(agentsMd)` as the System message + `history` + `registry.toolSpecs()` as `tools`.
 2. `provider.streamChat(request)`. Surface `TextDelta`. Accumulate `ToolCallDelta` by `index`; finalize/parse args only on `Finished(ToolCalls)`.
 3. `Finished(Stop)` → emit `Finished`, terminate.
-4. `Finished(ToolCalls)` → append the assistant message **verbatim** (content + accumulated `toolCalls`) to the working history; for each tool call, **serially**, call `registry.dispatch(call)` and append the returned `ChatMessage.Tool` in order; then loop to step 1 with the extended history.
+4. `Finished(ToolCalls)` → append the assistant message **verbatim** (content + accumulated `toolCalls`) to the working history; for each tool call, **serially**, call `registry.dispatch(call)`, append the returned `DispatchOutcome.reply` (`ChatMessage.Tool`) in order, and emit `ToolFinished(reply, display)`; then loop to step 1 with the extended history.
 5. **Termination guards:** an **iteration cap** (default **15**, configurable) bounds total request rounds. On exceeding it, emit a user-visible `Finished` carrying a "tool loop limit reached" reason and stop. (Degenerate-loop detection is deferred.)
 
-**Cancellation:** the flow is collected in a cancellable coroutine. On abort, collection stops; any assistant turn whose emitted `tool_call_id`s were not all answered is rolled back (or closed with synthetic "aborted by user" tool results) so no subsequent resend carries an orphaned `tool_call_id`. History remains valid.
+**Cancellation:** the flow is collected in a cancellable coroutine. On abort, collection stops; for any assistant turn whose emitted `tool_call_id`s were not all answered, the loop **closes each unanswered call with a synthetic `ChatMessage.Tool(isError = true, "aborted by user")`** (chosen over silent rollback so the transcript preserves what was attempted, matching the tool cards already shown). This guarantees no subsequent resend carries an orphaned `tool_call_id`; history remains valid. (DESIGN.md §6 sanctions either synthetic results or rollback; this increment picks synthetic results.)
 
 `AgentEvent` (UI projection, distinct from the wire-level `ChatEvent`):
 
@@ -120,10 +125,9 @@ sealed interface AgentEvent {
 
 `ToolDisplay` carries the structured data the UI needs (e.g. the query and the list of `{title, url}` for search, the URL for fetch) without the UI parsing tool content strings.
 
-## 6. `:core:network` — small additions
+## 6. `:core:network` — no production change
 
-- Wire-encode `ChatMessage.Tool` → `{ "role": "tool", "tool_call_id": ..., "content": ... }` in the request encoder (verify/extend the existing `toWire`; the assistant-with-tool_calls direction already encodes).
-- No decoder changes — tool-call deltas and finish reasons already exist.
+Verified 2026-06-24: `ChatMessage.Tool` **already** wire-encodes (`OpenAiCompatibleProvider.kt:190` → `WireMessage(role="tool", content=…, toolCallId=…)`), and the assistant-with-tool_calls direction encodes too (`:186`). Tool-call deltas and finish reasons already decode (§3). So this layer needs no production code in this increment — add only a `role:tool` round-trip encoder test if one is not already present.
 
 ## 7. Security & secrets
 
@@ -148,7 +152,7 @@ sealed interface AgentEvent {
 | Tool timeout (`withTimeout`) | `ChatMessage.Tool(isError=true, "timed out")` |
 | Exa HTTP / network error | mapped, surfaced as `isError=true` result |
 | Iteration cap reached | `AgentEvent.Finished(IterationCapReached)`, user-visible message |
-| User abort mid-turn | collection cancelled; history left valid (no orphan `tool_call_id`) |
+| User abort mid-turn | collection cancelled; unanswered calls closed with synthetic "aborted by user" `role:tool` results (§5); history left valid (no orphan `tool_call_id`) |
 
 In every tool-failure case the loop still produces exactly one `role:tool` reply per call, so the next request never 400s on an unanswered `tool_call_id`.
 
@@ -168,7 +172,7 @@ user msg
     → ChatRequest(system + history + tools=registry.toolSpecs())
     → provider.streamChat → TextDelta / ToolCallDelta(index) ...
     → Finished(ToolCalls)
-      → append Assistant(verbatim) ; for each call: registry.dispatch → ChatMessage.Tool
+      → append Assistant(verbatim) ; for each call: registry.dispatch → DispatchOutcome(reply, display)
       → re-request
     → Finished(Stop) → assistant answer + source chips
   (bounded by iteration cap; cancellable; all in-memory)
