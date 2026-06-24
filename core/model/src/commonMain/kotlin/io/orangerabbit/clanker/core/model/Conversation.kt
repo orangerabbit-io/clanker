@@ -1,13 +1,13 @@
 package io.orangerabbit.clanker.core.model
 
 /**
- * A chat thread. The persona ([characterId]) is composed into the System message at request
- * time rather than baked into stored history, so persona edits apply retroactively.
+ * A chat thread. The agent definition (fixed system prompt + AGENTS.md) is composed into the
+ * System message at request time rather than baked into stored history, so edits apply
+ * retroactively. An agent-profile reference will return here when profiles land.
  */
 data class Conversation(
     val id: ConversationId,
     val title: String,
-    val characterId: CharacterId?,
     val providerId: ProviderId,
     val modelId: String,
     val messages: List<ChatMessage>,

@@ -13,9 +13,6 @@ value class ConversationId(val value: String)
 value class MessageId(val value: String)
 
 @JvmInline
-value class CharacterId(val value: String)
-
-@JvmInline
 value class ProviderId(val value: String)
 
 @JvmInline

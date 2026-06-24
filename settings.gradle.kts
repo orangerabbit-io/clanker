@@ -19,6 +19,5 @@ rootProject.name = "clanker"
 include(":core:model")
 include(":core:network")
 include(":core:agent")
-include(":core:character")
 include(":core:designsystem")
 include(":app")
