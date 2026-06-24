@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,9 +18,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import io.orangerabbit.ui.effects.GlitchText
 import io.orangerabbit.ui.theme.AppTheme
-import io.orangerabbit.ui.theme.LocalCyberpunkFx
-import io.orangerabbit.ui.theme.glowShadow
 
 @Composable
 fun ThemedSectionHeader(
@@ -29,15 +28,11 @@ fun ThemedSectionHeader(
     modifier: Modifier = Modifier,
     accentColor: Color = MaterialTheme.colorScheme.primary,
 ) {
-    val displayTitle = buildString {
-        append("// ")
-        append(title.uppercase())
-    }
-
-    val glowLevel = LocalCyberpunkFx.current.glowLevel
-    val titleStyle = MaterialTheme.typography.labelLarge.let {
-        if (glowLevel > 0f) it.copy(shadow = glowShadow(accentColor, blurRadius = 22f * glowLevel)) else it
-    }
+    // Tight letter-spacing keeps the "//" prefix close to the title.
+    val titleStyle = MaterialTheme.typography.labelLarge.copy(
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.5.sp,
+    )
 
     Row(
         modifier = modifier
@@ -45,11 +40,10 @@ fun ThemedSectionHeader(
             .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = displayTitle,
-            style = titleStyle,
+        GlitchText(
+            text = "//${title.uppercase()}",
             color = accentColor,
-            fontWeight = FontWeight.Bold,
+            style = titleStyle,
         )
         Spacer(modifier = Modifier.width(12.dp))
         Box(

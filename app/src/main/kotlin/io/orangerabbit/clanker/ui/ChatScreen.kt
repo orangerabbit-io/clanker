@@ -46,9 +46,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -123,14 +125,14 @@ fun ChatScreen(
         }
         // Active model + running cost.
         val activeModel = if (state.imageMode) state.effectiveImageModel else state.effectiveChatModel
-        Text(
+        GlitchText(
             text = buildString {
-                append("// ")
-                append(if (state.imageMode) "IMG  " else "CHAT  ")
+                append("//")
+                append(if (state.imageMode) "IMG " else "CHAT ")
                 append(activeModel)
-                if (state.costUsd > 0.0) append("   $${"%.5f".format(state.costUsd)}")
+                if (state.costUsd > 0.0) append("  $${"%.5f".format(state.costUsd)}")
             },
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp),
             color = MaterialTheme.colorScheme.tertiary,
             modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
         )
@@ -211,7 +213,15 @@ fun ChatScreen(
                 label = "message",
                 keyboardType = KeyboardType.Text,
                 singleLine = false,
-                modifier = Modifier.weight(1f).heightIn(min = 56.dp, max = 140.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 56.dp, max = 140.dp)
+                    // Jump to the latest message when the user starts composing.
+                    .onFocusChanged { focus ->
+                        if (focus.isFocused && state.messages.isNotEmpty()) {
+                            scope.launch { listState.animateScrollToItem(state.messages.lastIndex) }
+                        }
+                    },
             )
             if (state.streaming) {
                 IconButton(onClick = viewModel::stop) {
@@ -265,18 +275,23 @@ private fun MessageBubble(message: ChatMessage, onImageTap: (ImageBitmap) -> Uni
 
     ThemedCard(borderColor = accent, glowColor = accent) {
         Column {
-            Text(
-                text = "// ${label.uppercase()}",
-                style = MaterialTheme.typography.labelSmall,
+            GlitchText(
+                text = "//${label.uppercase()}",
+                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp),
                 color = accent,
             )
             when {
                 body.isEmpty() && images.isEmpty() && message.lifecycle == MsgLifecycle.Streaming ->
                     Text(text = "▌", style = MaterialTheme.typography.bodyMedium)
+                // Assistant replies render as markdown (formatting/code), so they keep plain Text.
                 message is ChatMessage.Assistant && body.isNotEmpty() ->
                     Markdown(content = body)
                 body.isNotEmpty() ->
-                    Text(text = body, style = MaterialTheme.typography.bodyMedium)
+                    GlitchText(
+                        text = body,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
             }
             images.forEach { url ->
                 rememberDataUrlBitmap(url)?.let { bmp ->

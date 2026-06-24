@@ -217,6 +217,11 @@ fun SettingsScreen(viewModel: ChatViewModel, onBack: () -> Unit, modifier: Modif
     }
 }
 
+/**
+ * Editable model field with fzf-style filtering: type to fuzzily narrow the catalogue, tap to
+ * commit. A typed value that isn't picked from the list is committed on dismiss (supports custom
+ * model ids). Image fields show only image-output models.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModelDropdown(
@@ -231,27 +236,49 @@ private fun ModelDropdown(
     imageOnly: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val shown = if (imageOnly) models.filter { Capability.ImageOutput in it.capabilities } else models
+    // Local edit buffer used ONLY while the menu is open. When collapsed the field shows the
+    // committed `selected`, so the displayed value can never diverge from the real model.
+    var query by remember { mutableStateOf("") }
+    val displayValue = if (expanded) query else selected
+
+    val base = if (imageOnly) models.filter { Capability.ImageOutput in it.capabilities } else models
+    val filtered = remember(query, base) {
+        if (query.isBlank() || query == selected) base
+        else base.filter { fuzzyMatch(query, it.id) }.sortedBy { it.id.length }
+    }
 
     ExposedDropdownMenuBox(
         expanded = expanded,
-        onExpandedChange = {
-            expanded = it
-            if (it && models.isEmpty()) onRequestModels()
+        onExpandedChange = { exp ->
+            if (exp) {
+                query = selected
+                if (models.isEmpty()) onRequestModels()
+            }
+            expanded = exp
         },
         modifier = modifier.fillMaxWidth().padding(top = 6.dp),
     ) {
         OutlinedTextField(
-            value = selected,
-            onValueChange = { onSelect(it) },
+            value = displayValue,
+            onValueChange = { query = it; expanded = true },
             label = { Text(label.uppercase(), style = MaterialTheme.typography.labelMedium) },
             singleLine = true,
             shape = MaterialTheme.shapes.small,
             textStyle = MaterialTheme.typography.bodyLarge,
+            placeholder = { Text("type to filter…", style = MaterialTheme.typography.bodyMedium) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = {
+                expanded = false
+                // Commit a typed value only if it's an EXACT model id (manual entry); otherwise the
+                // buffer is discarded and the field falls back to the committed `selected`.
+                val typed = query.trim()
+                if (typed != selected && base.any { it.id == typed }) onSelect(typed)
+            },
+        ) {
             if (loading) {
                 DropdownMenuItem(text = { Text("Loading models…") }, onClick = {}, enabled = false)
             }
@@ -261,12 +288,30 @@ private fun ModelDropdown(
                     onClick = { onSelect(""); expanded = false },
                 )
             }
-            shown.forEach { model ->
+            filtered.forEach { model ->
                 DropdownMenuItem(
                     text = { Text(model.id, style = MaterialTheme.typography.bodyMedium) },
                     onClick = { onSelect(model.id); expanded = false },
                 )
             }
+            if (filtered.isEmpty() && !loading) {
+                DropdownMenuItem(text = { Text("no match", style = MaterialTheme.typography.bodySmall) }, onClick = {}, enabled = false)
+            }
         }
     }
+}
+
+/** Case-insensitive subsequence match (fzf-style): every char of [query] appears in order in [candidate]. */
+private fun fuzzyMatch(query: String, candidate: String): Boolean {
+    val q = query.trim().lowercase()
+    if (q.isEmpty()) return true
+    val c = candidate.lowercase()
+    var i = 0
+    for (ch in c) {
+        if (ch == q[i]) {
+            i++
+            if (i == q.length) return true
+        }
+    }
+    return false
 }
