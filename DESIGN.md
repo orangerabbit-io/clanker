@@ -1,16 +1,16 @@
 # clanker — Architecture & Implementation Plan
 
-A native Android agentic LLM harness. Kotlin + Compose, OpenAI-compatible provider layer (OpenRouter first), Character Card V2 personas, and tool-calling spanning native tools, SSH targets, and (later) MCP.
+A native Android agentic LLM harness. Kotlin + Compose, OpenAI-compatible provider layer (OpenRouter first), a two-layer agent definition (fixed system prompt + user `AGENTS.md`), and tool-calling spanning native tools, SSH targets, and (later) MCP.
 
 ## 1. Overview & Design Principles
 
-clanker is an agentic chat client whose differentiation is three open seams: **providers**, **personas**, and **tools**. Everything else is conventional 2026 Android.
+clanker is an agentic chat client whose differentiation is two open seams: **providers** and **tools**. Everything else is conventional 2026 Android.
 
 | Principle | Consequence |
 |---|---|
 | **The abstraction is the product.** | Two narrow interfaces — `LlmProvider` and `Tool` — own the value. No OpenAI-shaped DTO ever escapes the provider boundary. |
 | **The harness owns the agent loop.** | Hand-rolled loop above the provider interface, not a framework (Koog is the documented fallback). Provider only emits/consumes `tool_calls`. |
-| **The device is hostile; the model is hostile.** | Prompt injection is structural and unfixable (indirect via web results, malicious cards, SSH output fed back). No single model decision causes irreversible action. The *only* authoritative controls are server-side. On-device controls are defense-in-depth, never relied upon. |
+| **The device is hostile; the model is hostile.** | Prompt injection is structural and unfixable (indirect via web results, SSH output fed back). No single model decision causes irreversible action. The *only* authoritative controls are server-side. On-device controls are defense-in-depth, never relied upon. |
 | **No shell on the far side.** | The model never produces a command *string*. SSH tools are a fixed set of structured RPC verbs executed via argv vectors against a server-side wrapper that ignores free text. Client-side "parse the shell to decide safety" is intractable and is not a security boundary. |
 | **Wire-faithful persistence, derived UI.** | Stored messages mirror the API wire shape exactly, including opaque structured reasoning blocks (signed/encrypted thinking must round-trip verbatim). UI state is a separate projection. |
 | **Bounded everything.** | Every loop, every input, every context window, every spend has an explicit ceiling. Unbounded accumulation is a production failure, not an edge case. |
@@ -53,12 +53,11 @@ clanker/
 │  ├─ datastore/                 settings + Tink-encrypted secret store
 │  ├─ security/                  Tink/Keystore wrapper, BiometricGate, approval engine
 │  ├─ network/                   LlmProvider + OpenAiCompatibleProvider + wire DTOs (isolated here)
-│  ├─ character/                 Card V2/V3 parsing, PNG chunk walker, macro engine, lorebook
 │  ├─ tools/                     Tool/ToolRegistry/ToolProvider; native, ssh, mcp adapters
 │  ├─ context/                   token estimator + context-budget manager
-│  └─ agent/                     the agent loop orchestrator
+│  └─ agent/                     agent loop orchestrator + SystemPrompt / composeSystemPrompt
 └─ feature/
-   ├─ chat/  characters/  servers/  settings/  tools/  inspector/
+   ├─ chat/  servers/  settings/  tools/  inspector/
 ```
 
 Wire DTOs live **only** in `:core:network`. `:core:agent`, `:core:tools`, UI depend on `:core:model`.
@@ -98,11 +97,12 @@ sealed interface Attachment {                                   // multimodal in
 // the wire encoder emits the OpenAI content-array image_url/base64 data-URL form at request time.
 
 data class Conversation(
-  val id: Uuid, val title: String, val characterId: Uuid?, val providerId: ProviderId,
+  val id: Uuid, val title: String, val providerId: ProviderId,
   val modelId: String, val messages: List<ChatMessage>, val costAccumUsd: Double,
 )
 
-data class Character(/* canonical CCv2/v3 model — see §7 */)
+// No Character/Persona type — agent identity is the two-layer prompt (§7),
+// composed at request time from SystemPrompt.TEXT + the global AGENTS.md.
 
 data class ProviderConfig(
   val id: ProviderId, val baseUrl: String, val authRef: SecretRef,
@@ -125,7 +125,12 @@ data class PendingApproval(
 )
 ```
 
-Persona is composed into the System message **at request time**, never baked into stored history — so persona edits apply retroactively.
+**Agent identity is a two-layer model, composed into the System message at request time** via `composeSystemPrompt(agentsMd)` (`:core:agent`), never baked into stored history — so edits apply retroactively:
+
+- **Layer 0 — fixed system prompt.** `io.orangerabbit.clanker.core.agent.SystemPrompt.TEXT` is an app-versioned, non-user-editable base prompt that establishes the harness's identity and behaviour. It ships with the app and changes only with releases.
+- **Layer 1 — user `AGENTS.md`.** A single user-editable global `AGENTS.md` string (stored in `SettingsStore`, edited in Settings) is appended after Layer 0. An empty/blank `AGENTS.md` yields just `SystemPrompt.TEXT`.
+
+There are no per-character personas, macros, or per-conversation prompt overrides — see §7.
 
 ## 5. LLM Provider Abstraction
 
@@ -158,7 +163,7 @@ sealed interface ChatEvent {
 
 Provider-agnostic orchestrator in `:core:agent`, emitting a `Flow<AgentEvent>` the ViewModel collects.
 
-1. Build request: run the **context-budget manager** (§6.1), compose System (persona + lorebook + `system_prompt`), history, `tools` array from `ToolRegistry`, `post_history_instructions` after history.
+1. Build request: run the **context-budget manager** (§6.1), compose the System message via `composeSystemPrompt(agentsMd)` (fixed `SystemPrompt.TEXT` + global `AGENTS.md`, §7), history, and the `tools` array from `ToolRegistry`.
 2. `streamChat()`. Surface `TextDelta`/`ReasoningDelta` live. Accumulate tool calls by index. Mark the in-flight assistant message `Streaming`.
 3. On `Finished(Stop)` → mark `Complete`, done. On `Finished(ToolCalls)` → continue.
 4. **Append the assistant message verbatim** (content + tool_calls + structured reasoning) to history. *Every* `tool_call_id` MUST get exactly one `role:tool` reply or the next request 400s.
@@ -177,29 +182,16 @@ Provider-agnostic orchestrator in `:core:agent`, emitting a `Flow<AgentEvent>` t
 `context_length` is discovered per model and **enforced**, not merely displayed.
 
 - A token estimator (heuristic char/token ratio per model family; exact tokenizer where one is bundled) accounts the full prospective request against the model's context window minus a reserved completion margin.
-- **Overflow strategy (configurable, default = rolling summarization with truncation fallback):** when the budget would be exceeded, oldest non-pinned turns are summarized into a compacted system note; if still over, oldest turns are dropped. System/persona/lorebook-constant entries are pinned.
+- **Overflow strategy (configurable, default = rolling summarization with truncation fallback):** when the budget would be exceeded, oldest non-pinned turns are summarized into a compacted system note; if still over, oldest turns are dropped. The composed System message (`SystemPrompt.TEXT` + `AGENTS.md`) is pinned.
 - **Tool-output capping** is layered with this: large SSH/web results are byte-capped (first+last N KB) before insertion, and the budget manager may further summarize them. A 15-iteration loop with large outputs must never silently 400 or truncate the wire body.
 
-## 7. Character Card V2 Support
+## 7. Agent definition
 
-**Canonical internal model = V2 as the floor.** Polymorphic on `spec`: backfill V1 flat JSON up to V2; preserve V3 extras in `extensions`. `ccv3` chunk takes precedence over `chara`.
+**clanker no longer imports SillyTavern character cards.** The earlier Character Card V2/V3 path — `:core:character`, the `Persona` model, the PNG chunk walker, the macro engine, lorebooks, and per-character `system_prompt`/`post_history_instructions` overrides — has been removed (see the §14 decision log).
 
-**PNG reading — hand-rolled chunk walker (~40 LOC), zero non-stdlib deps. Character cards are an attacker-controlled input vector, so the walker is resource-bounded:**
-1. Verify 8-byte signature.
-2. Loop chunks `[len][type][data][crc]`. **Enforce a max chunk count, a max per-chunk length, and a max total bytes read**; reject attacker-inflated length fields.
-3. For `tEXt`, data = `keyword` (Latin-1) `\0` `text`. Match `ccv3` first, else `chara` (case-insensitive).
-4. **Base64-decode the raw text bytes, THEN UTF-8** the result — decoding the chunk as Latin-1 before base64 corrupts multibyte chars (the canonical bug).
-5. `zTXt`/`iTXt` (zlib-inflate) handled with a **decompression-bomb guard**: hard cap on inflated output size and on the inflate ratio; abort on exceed. Stop at `IEND`.
-6. **Robust failure path:** unknown/corrupt/oversized cards surface a clear import error, never a silent failure. Also accept JSON cards and (later) `.charx` zip.
+Agent identity is the two-layer prompt described in §4: a fixed, app-versioned `SystemPrompt.TEXT` (Layer 0) plus a single user-editable global `AGENTS.md` (Layer 1), composed at request time via `composeSystemPrompt(agentsMd)` and never baked into stored history. There is exactly one global agent definition; there are no per-character profiles, no card parsing, and no prompt macros.
 
-**Field → prompt mapping** (via macro substitution, case-insensitive, recursive with depth cap):
-- System block: `description` + `personality` + `scenario` (+ persona).
-- `mes_example` split on `<START>` → example dialogue (pruned first under token pressure).
-- `first_mes` (or chosen `alternate_greetings[]`) = assistant's opening swipe.
-- `system_prompt` overrides app default (empty → fall back, don't inject empty); `post_history_instructions` injected after history. Both support `{{original}}`.
-- **Never** put `creator_notes`/`tags`/`creator`/`character_version` into the prompt (UI/sorting only).
-
-**Lorebook (V2 keyword engine in v1):** keyword match against recent history within `scan_depth`/`token_budget`; `insertion_order`, `priority`, `selective` (keys + secondary_keys), `constant`, `recursive_scanning` — with the **recursion bounded** (depth cap + budget cap) so a malicious lorebook cannot blow up. Entry type designed so V3 `use_regex` + `@@`-decorators layer on without schema churn.
+Multiple named agent profiles, per-conversation persistence, and richer prompt assembly (e.g. tool descriptions injected into the prompt) are sequenced as later work, not part of the current model.
 
 ## 8. Tool System
 
@@ -263,7 +255,7 @@ The threat model is explicit: **prompt injection is structural and unfixable, th
 3. **Client-side argument validation/clamping** against JSON Schema. This is *defense-in-depth, not a boundary* — the doc does not claim client-side checks stop a determined injection; the server-side closed verb set does. **There is no client-side free-form-shell parser**, because proving an arbitrary bash string safe is intractable (substitution, globbing, aliases, runtime PATH/expansion the client cannot see).
 4. **Per-target capability scoping** + **read-only mode** as the default for new targets.
 5. **Audit log — on-device is advisory only.** An append-only, hash-chained log links each command to its originating model turn, redacting secrets. On a rooted device this log and the secrets are attacker-controlled, so **the server-side log (written by the wrapper) is the authoritative system of record**; the on-device log is for in-app review and convenience, never relied upon for forensics.
-6. Never inject raw remote/web/card output into a system prompt unescaped — all of it is attacker-influenced.
+6. Never inject raw remote/web output into a system prompt unescaped — all of it is attacker-influenced.
 
 ## 11. Chat UX
 
@@ -279,15 +271,15 @@ The threat model is explicit: **prompt injection is structural and unfixable, th
 
 | Data | Store |
 |---|---|
-| Conversations, messages (wire-faithful, incl. structured reasoning), characters, SSH targets, pending approvals, audit log | Room 2.8.x (room3 when stable) |
+| Conversations, messages (wire-faithful, incl. structured reasoning), SSH targets, pending approvals, audit log | Room 2.8.x (room3 when stable) |
 | Attachment bytes (images/files) | Files on disk, referenced by `BlobRef` (not inline Room blobs) |
-| Non-secret settings (selected provider, model, theme, autonomy level, spend ceilings) | DataStore Proto |
+| Non-secret settings (selected provider, model, theme, autonomy level, spend ceilings, global `AGENTS.md`) | DataStore Proto |
 | API keys, SSH keys/passwords, MCP OAuth tokens | Tink-encrypted ciphertext in DataStore |
 | Large histories | Paging 3 (`collectAsLazyPagingItems`) |
 
 Canonical wire-model is the source of truth; UI projection (streaming buffers, approval state, tool cards) is derived. **Pending approvals and per-message lifecycle are persisted** so process-death/interrupt mid-turn is recoverable.
 
-**Export / backup:** conversations, character cards, and server configs are exportable. Because secrets are Tink-encrypted and Keystore-bound (non-portable), export **excludes secrets by default**; an optional "include secrets" path re-encrypts under a user passphrase. This is a deliberate design item, not an afterthought — naive backup of Keystore-bound ciphertext is unrecoverable on a new device.
+**Export / backup:** conversations, the global `AGENTS.md`, and server configs are exportable. Because secrets are Tink-encrypted and Keystore-bound (non-portable), export **excludes secrets by default**; an optional "include secrets" path re-encrypts under a user passphrase. This is a deliberate design item, not an afterthought — naive backup of Keystore-bound ciphertext is unrecoverable on a new device.
 
 ## 13. Phased Roadmap
 
@@ -300,17 +292,17 @@ Canonical wire-model is the source of truth; UI projection (streaming buffers, a
 - Nav3 1.1.x graph (conversation list ↔ chat ↔ settings); request/response inspector
 - Cost surface + spend ceiling
 
-**v1 — agentic + personas**
+**v1 — agentic**
 - Agent loop (iteration cap, degenerate-loop guard, RiskLevel-keyed concurrency, **persisted approvals**, full cancellation path)
 - `Tool`/`ToolRegistry` with `ClientExecuted`/`ProviderExecuted` modes; native web search/fetch (OpenRouter server tools + Exa/fetch fallback)
-- Character Card V2 import (resource-bounded PNG walker), macro engine, bounded V2 lorebook, persona picker
+- Two-layer agent definition: fixed `SystemPrompt.TEXT` + user-editable global `AGENTS.md` (`composeSystemPrompt`), edited in Settings
 - SSH: sshj, TOFU pinning, **SFTP file ops + structured-verb exec via forced-command wrapper**, approval UX, advisory audit log, biometric gating with combined consent
 - Documented server-side wrapper + onboarding flow
 - Adaptive list/detail panes; export/backup (secrets excluded)
 
 **Later**
 - MCP (remote transports, SDK 0.13.0, OAuth credential storage already reserved); additional providers (Anthropic/Gemini-native, local servers); Responses API behind capability flag
-- Character Card V3 (decorators, regex lorebook, `.charx` loader); M3 Expressive as it stabilizes
+- Multiple named agent profiles + per-conversation agent persistence (Room); tool descriptions composed into the prompt; M3 Expressive as it stabilizes
 - Room 3.0 migration when stable; Keystore-resident SSH signing; KMP extraction if iOS/desktop is pursued
 
 ## 14. Open Decisions for the User
@@ -335,6 +327,10 @@ Canonical wire-model is the source of truth; UI projection (streaming buffers, a
 | 16 | **Room 2.x vs Room 3.0** | Room 2.8.x stable / room3 alpha now | **Room 2.8.x for v1** (room3 is `3.0.0-alpha01`, contradicts "stable over shiny"); migrate to room3 when it GAs, aligning with the KMP-cheap principle. |
 | 17 | **DI: Hilt vs Metro** | Hilt (Android-only, mature) / Metro (KMP, newer) | **Hilt** — coupled to staying Android-only for v1. Choose Metro only if KMP is committed now. |
 | 18 | **Multiplatform now?** | Android-only / KMP day 1 / **defer (keep core UI-free)** | **Defer.** Android-only v1; keep `:core:*` UI-free so a later KMP move is cheap. Revisit only if iOS/desktop is a real goal. |
+
+### Decision log / reversals
+
+> **2026-06-24 — Persona/character cards removed.** Clanker is an agent harness only. The SillyTavern character-card path (`:core:character`, `Persona`, macros, per-character overrides) is deleted in favour of a two-layer prompt: a fixed, app-versioned system prompt plus a single user-editable global `AGENTS.md`, composed at request time. Multiple agent profiles, per-conversation persistence (Room), and tool descriptions in the prompt are sequenced as later work. Spec: `docs/superpowers/specs/2026-06-24-agent-definition-layering-design.md`.
 
 ---
 
