@@ -60,6 +60,9 @@ class ChatViewModel(
         val pendingImages: List<String> = emptyList(),
         /** Running conversation cost in USD, accumulated from the trailing usage chunk. */
         val costUsd: Double = 0.0,
+        /** Result of the last "test connection" probe; null = not run. */
+        val keyTest: String? = null,
+        val testingKey: Boolean = false,
     ) {
         /** The chat model actually used: the character's override, else the global default. */
         val effectiveChatModel: String get() = characterChatModel ?: defaultChatModel
@@ -95,8 +98,40 @@ class ChatViewModel(
         // Trim: a stray space/newline (common on paste) makes "Bearer <key>" a malformed
         // Authorization header, which OpenRouter rejects as "missing authentication header".
         val key = value.trim()
-        _state.update { it.copy(apiKey = key) }
+        _state.update { it.copy(apiKey = key, keyTest = null) }
         viewModelScope.launch { secrets.saveApiKey(key) }
+    }
+
+    /**
+     * One-tap key check: hits GET /models and reports the outcome, surfacing the provider's own
+     * error message (e.g. "User not found", "Invalid API key") so a bad key is unambiguous. On
+     * success the catalogue is cached for the model dropdowns too.
+     */
+    fun testConnection() {
+        val current = _state.value
+        if (current.apiKey.isBlank()) {
+            _state.update { it.copy(keyTest = "✗ enter a key first") }
+            return
+        }
+        if (current.testingKey) return
+        _state.update { it.copy(testingKey = true, keyTest = null) }
+        viewModelScope.launch {
+            try {
+                val provider = openRouterProvider(apiKey = current.apiKey, engine = engine)
+                // Authenticated probe FIRST — /models is public and would pass even with a bad key.
+                provider.validateKey()
+                val models = provider.listModels().sortedBy { it.id }
+                _state.update {
+                    it.copy(
+                        testingKey = false,
+                        availableModels = models,
+                        keyTest = "✓ key valid — ${models.size} models",
+                    )
+                }
+            } catch (e: Throwable) {
+                _state.update { it.copy(testingKey = false, keyTest = "✗ ${e.message ?: "connection failed"}") }
+            }
+        }
     }
 
     fun setDefaultChatModel(value: String) {

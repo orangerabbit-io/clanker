@@ -11,11 +11,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -91,8 +95,41 @@ fun SettingsScreen(viewModel: ChatViewModel, onBack: () -> Unit, modifier: Modif
             textStyle = MaterialTheme.typography.bodyLarge,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
+            trailingIcon = if (state.apiKey.isNotEmpty()) {
+                {
+                    IconButton(onClick = { viewModel.setApiKey("") }) {
+                        Icon(Icons.Filled.Close, contentDescription = "clear key")
+                    }
+                }
+            } else {
+                null
+            },
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ThemedButton(
+                onClick = viewModel::testConnection,
+                accent = ThemedButtonAccent.Tertiary,
+                enabled = !state.testingKey,
+            ) {
+                Text(
+                    if (state.testingKey) "TESTING…" else "TEST CONNECTION",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+            state.keyTest?.let { result ->
+                Text(
+                    text = result,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (result.startsWith("✓")) MaterialTheme.colorScheme.tertiary
+                    else MaterialTheme.colorScheme.error,
+                )
+            }
+        }
 
         ThemedSectionHeader(title = "models", accentColor = MaterialTheme.colorScheme.tertiary)
         ModelDropdown(

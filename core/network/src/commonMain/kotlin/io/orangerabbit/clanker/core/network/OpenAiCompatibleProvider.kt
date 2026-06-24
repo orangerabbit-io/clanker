@@ -105,14 +105,41 @@ class OpenAiCompatibleProvider(
     override suspend fun chat(request: ChatRequest): ChatResponse =
         throw UnsupportedOperationException("Non-streaming chat() not yet implemented; use streamChat().")
 
+    /**
+     * Validates the API key against an AUTHENTICATED endpoint (OpenRouter `GET /key`). Note that
+     * `GET /models` is PUBLIC and ignores the key, so it must NOT be used as an auth check — a bad
+     * key still returns the full catalogue there. Throws [LlmApiException] when the key is rejected.
+     */
+    suspend fun validateKey() {
+        val client = newClient()
+        try {
+            val resp = client.get("$baseUrl/key") {
+                header(HttpHeaders.Authorization, "Bearer $apiKey")
+                defaultHeaders.forEach { (k, v) -> header(k, v) }
+            }
+            if (!resp.status.isSuccess()) {
+                val body = runCatching { resp.bodyAsText() }.getOrNull()
+                throw LlmApiException(errorFor(resp.status.value, body))
+            }
+        } finally {
+            client.close()
+        }
+    }
+
     override suspend fun listModels(): List<ModelInfo> {
         val client = newClient()
         try {
-            val response: ModelsResponse = client.get("$baseUrl/models") {
+            val httpResponse = client.get("$baseUrl/models") {
                 header(HttpHeaders.Authorization, "Bearer $apiKey")
                 defaultHeaders.forEach { (k, v) -> header(k, v) }
-            }.body()
-            return response.data.map { it.toModelInfo() }
+            }
+            // Surface auth/quota failures as a meaningful message (e.g. "User not found", "Invalid
+            // API key") instead of an opaque deserialization error from parsing the error body.
+            if (!httpResponse.status.isSuccess()) {
+                val body = runCatching { httpResponse.bodyAsText() }.getOrNull()
+                throw LlmApiException(errorFor(httpResponse.status.value, body))
+            }
+            return httpResponse.body<ModelsResponse>().data.map { it.toModelInfo() }
         } finally {
             client.close()
         }

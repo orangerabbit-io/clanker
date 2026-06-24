@@ -69,6 +69,9 @@ data class Usage(
     val costUsd: Double? = null,
 )
 
+/** Thrown by non-streaming calls (e.g. [LlmProvider.listModels]) when the API returns an error. */
+class LlmApiException(val apiError: ApiError) : Exception(apiError.message)
+
 data class ApiError(
     val httpStatus: Int?,
     val code: String?,
