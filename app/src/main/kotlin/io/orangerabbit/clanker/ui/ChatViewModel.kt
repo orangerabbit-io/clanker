@@ -9,6 +9,7 @@ import io.orangerabbit.clanker.core.model.MessageId
 import io.orangerabbit.clanker.core.model.MsgLifecycle
 import io.orangerabbit.clanker.core.network.ChatEvent
 import io.orangerabbit.clanker.core.network.ChatRequest
+import io.orangerabbit.clanker.core.network.ModelInfo
 import io.orangerabbit.clanker.core.network.openRouterProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +30,8 @@ class ChatViewModel(
     data class UiState(
         val apiKey: String = "",
         val model: String = "openai/gpt-4o-mini",
+        val availableModels: List<ModelInfo> = emptyList(),
+        val modelsLoading: Boolean = false,
         val messages: List<ChatMessage> = emptyList(),
         val streaming: Boolean = false,
         val error: String? = null,
@@ -39,6 +42,23 @@ class ChatViewModel(
 
     fun setApiKey(value: String) = _state.update { it.copy(apiKey = value) }
     fun setModel(value: String) = _state.update { it.copy(model = value) }
+
+    /** Fetches the provider's model catalogue for the dropdown. No-op without an API key. */
+    fun loadModels() {
+        val current = _state.value
+        if (current.apiKey.isBlank() || current.modelsLoading) return
+        _state.update { it.copy(modelsLoading = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val models = openRouterProvider(apiKey = current.apiKey, engine = engine)
+                    .listModels()
+                    .sortedBy { it.id }
+                _state.update { it.copy(availableModels = models, modelsLoading = false) }
+            } catch (e: Throwable) {
+                _state.update { it.copy(modelsLoading = false, error = "Model load failed: ${e.message}") }
+            }
+        }
+    }
 
     fun send(text: String) {
         val current = _state.value

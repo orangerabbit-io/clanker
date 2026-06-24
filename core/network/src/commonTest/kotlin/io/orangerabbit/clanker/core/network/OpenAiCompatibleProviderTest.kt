@@ -98,6 +98,41 @@ class OpenAiCompatibleProviderTest {
     }
 
     @Test
+    fun listModelsParsesIdsNamesAndCapabilities() = runTest {
+        val body = """
+            {"data":[
+              {"id":"openai/gpt-4o","name":"GPT-4o","context_length":128000,
+               "architecture":{"input_modalities":["text","image"]},
+               "supported_parameters":["tools","temperature"]},
+              {"id":"meta/llama-3","context_length":8192,"supported_parameters":[]}
+            ]}
+        """.trimIndent()
+        val engine = MockEngine {
+            respond(
+                content = body,
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val models = provider(engine).listModels()
+
+        assertEquals(2, models.size)
+        val gpt = models.first()
+        assertEquals("openai/gpt-4o", gpt.id)
+        assertEquals("GPT-4o", gpt.displayName)
+        assertEquals(128000, gpt.contextLength)
+        assertTrue(Capability.Streaming in gpt.capabilities)
+        assertTrue(Capability.ToolCalling in gpt.capabilities)
+        assertTrue(Capability.Vision in gpt.capabilities)
+
+        val llama = models[1]
+        assertEquals("meta/llama-3", llama.id)
+        assertEquals("meta/llama-3", llama.displayName) // no name → falls back to id
+        assertTrue(Capability.ToolCalling !in llama.capabilities)
+        assertTrue(Capability.Vision !in llama.capabilities)
+    }
+
+    @Test
     fun serverErrorIsRetryable() = runTest {
         val engine = MockEngine {
             respondError(status = HttpStatusCode.ServiceUnavailable, content = "overloaded")

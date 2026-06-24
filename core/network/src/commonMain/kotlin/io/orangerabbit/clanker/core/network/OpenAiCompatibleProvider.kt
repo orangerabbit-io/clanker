@@ -2,7 +2,9 @@ package io.orangerabbit.clanker.core.network
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
@@ -98,7 +100,18 @@ class OpenAiCompatibleProvider(
     override suspend fun chat(request: ChatRequest): ChatResponse =
         throw UnsupportedOperationException("Non-streaming chat() not yet implemented; use streamChat().")
 
-    override suspend fun listModels(): List<ModelInfo> = emptyList() // TODO: GET /models, test-first
+    override suspend fun listModels(): List<ModelInfo> {
+        val client = newClient()
+        try {
+            val response: ModelsResponse = client.get("$baseUrl/models") {
+                header(HttpHeaders.Authorization, "Bearer $apiKey")
+                defaultHeaders.forEach { (k, v) -> header(k, v) }
+            }.body()
+            return response.data.map { it.toModelInfo() }
+        } finally {
+            client.close()
+        }
+    }
 
     private fun errorFor(status: Int, body: String?): ApiError {
         val parsed = body?.let { runCatching { json.decodeFromString<HttpErrorEnvelope>(it).error }.getOrNull() }
@@ -157,7 +170,39 @@ fun openRouterProvider(
     defaultHeaders = mapOf("HTTP-Referer" to appUrl, "X-Title" to appTitle),
 )
 
+private fun ModelDto.toModelInfo(): ModelInfo {
+    val capabilities = buildSet {
+        add(Capability.Streaming) // OpenAI-compatible endpoints stream by default
+        if (supportedParameters.any { it == "tools" }) add(Capability.ToolCalling)
+        if (supportedParameters.any { it.contains("reasoning") }) add(Capability.Reasoning)
+        if (architecture?.inputModalities?.any { it == "image" } == true) add(Capability.Vision)
+    }
+    return ModelInfo(
+        id = id,
+        displayName = name ?: id,
+        contextLength = contextLength,
+        capabilities = capabilities,
+    )
+}
+
 // --- Wire request DTOs (isolated to :core:network) ---
+
+@Serializable
+private data class ModelsResponse(val data: List<ModelDto> = emptyList())
+
+@Serializable
+private data class ModelDto(
+    val id: String,
+    val name: String? = null,
+    @SerialName("context_length") val contextLength: Int? = null,
+    val architecture: ArchitectureDto? = null,
+    @SerialName("supported_parameters") val supportedParameters: List<String> = emptyList(),
+)
+
+@Serializable
+private data class ArchitectureDto(
+    @SerialName("input_modalities") val inputModalities: List<String> = emptyList(),
+)
 
 @Serializable
 private data class ChatCompletionRequest(

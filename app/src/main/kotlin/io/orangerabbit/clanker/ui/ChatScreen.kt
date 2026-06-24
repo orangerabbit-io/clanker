@@ -10,11 +10,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -32,10 +37,12 @@ import com.mikepenz.markdown.m3.Markdown
 import io.orangerabbit.clanker.core.model.ChatMessage
 import io.orangerabbit.clanker.core.model.MsgLifecycle
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(viewModel: ChatViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var draft by remember { mutableStateOf("") }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(modifier = modifier.fillMaxSize()) { padding ->
         Column(
@@ -54,13 +61,42 @@ fun ChatScreen(viewModel: ChatViewModel, modifier: Modifier = Modifier) {
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
-            OutlinedTextField(
-                value = state.model,
-                onValueChange = viewModel::setModel,
-                label = { Text("Model") },
-                singleLine = true,
+            ExposedDropdownMenuBox(
+                expanded = modelMenuExpanded,
+                onExpandedChange = {
+                    modelMenuExpanded = it
+                    if (it && state.availableModels.isEmpty()) viewModel.loadModels()
+                },
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            )
+            ) {
+                OutlinedTextField(
+                    value = state.model,
+                    onValueChange = viewModel::setModel,
+                    label = { Text("Model") },
+                    singleLine = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelMenuExpanded) },
+                    modifier = Modifier
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable)
+                        .fillMaxWidth(),
+                )
+                ExposedDropdownMenu(
+                    expanded = modelMenuExpanded,
+                    onDismissRequest = { modelMenuExpanded = false },
+                ) {
+                    if (state.modelsLoading) {
+                        DropdownMenuItem(text = { Text("Loading models…") }, onClick = {}, enabled = false)
+                    }
+                    state.availableModels.forEach { model ->
+                        DropdownMenuItem(
+                            text = { Text(model.id) },
+                            onClick = {
+                                viewModel.setModel(model.id)
+                                modelMenuExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
 
             state.error?.let { err ->
                 Text(
