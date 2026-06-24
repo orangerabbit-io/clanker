@@ -59,7 +59,11 @@ it yet).
 
 - Single global markdown document. Default: empty.
 - Stored in DataStore (new `agentsMd: String` preference in `SettingsStore`, alongside the existing
-  non-secret settings). Not a secret; plaintext DataStore Proto is appropriate.
+  non-secret settings). `SettingsStore` is a **Preferences** DataStore — add a
+  `stringPreferencesKey("agents_md")`, a field on the `Settings` data class, mapping in
+  `toSettings()`, a setter, and feed it into `UiState` via the `init` collector
+  (ChatViewModel.kt:86–97), exactly as `defaultChatModel` is handled. Not a secret; plaintext is
+  appropriate.
 - Edited via a new multiline field in the Settings UI, labelled "Agent instructions (`AGENTS.md`)"
   with a hint: *"Project conventions and preferences, e.g. 'use conventional commits.'"*
 - Import/export to a real `.md` file is a nice-to-have, **not** in this scope.
@@ -90,14 +94,29 @@ request time; never appended to stored history.
 - `:core:character` module deleted entirely: `CharacterCard`, `CharacterCardParser` (PNG chunk
   walker + JSON/DTO parsing), `Persona` (incl. `substituteMacros`, `greeting`), and their tests
   (`CharacterCardParserTest`, `PersonaTest`).
-- Gradle: drop the `:core:character` module from `settings.gradle`/version catalog and remove
-  `:app`'s dependency on it.
-- `ChatViewModel`: remove `applyCardBytes`, greeting seeding, and the `character` field from
-  `UiState`; remove the `{{char}}`/`{{user}}` macro path.
-- UI: remove the card-import entrypoint and its file-picker plumbing from `ChatScreen`.
-- `SettingsStore`: remove the **per-character** model override (keyed by character name); collapse to
-  the existing global default chat/image models. Lifetime spend, FX intensity, default models stay.
-- `Conversation.characterId`: **dropped now** (YAGNI); re-added as `agentProfileId` when profiles land.
+- Gradle: remove `include(":core:character")` (settings.gradle.kts:21) and `:app`'s
+  `implementation(project(":core:character"))` (app/build.gradle.kts:39). The version catalog
+  (`libs.versions.toml`) has **no** character entry — nothing to remove there.
+- `ChatViewModel`: remove `applyCardBytes` (incl. the override-restore block at lines 192–198),
+  greeting seeding, the `character` field from `UiState`, and the `{{char}}`/`{{user}}` macro path.
+- UI: the card-import entrypoint lives in **`SettingsScreen.kt`**, not `ChatScreen`. Remove the
+  `cardPicker` launcher + `applyCardBytes` call (SettingsScreen.kt:58–65), the "persona" section
+  header + IMPORT PERSONA button (SettingsScreen.kt:182–192), and the per-character override
+  dropdown block (SettingsScreen.kt:155–180). **Do not touch** `ChatScreen.kt`'s `GetContent()`
+  picker at line 81 — that is the image attachment picker, unrelated.
+- Per-character model override — remove the **entire** surface, not just storage:
+  - `CharacterModels` data class (SettingsStore.kt:35), `setCharacterModels` / `characterModels`
+    methods and `chatKey`/`imageKey` preference keys (SettingsStore.kt:64–79, 93–94).
+  - `ChatViewModel.setCharacterModels` (ChatViewModel.kt:159–165) and its `CharacterModels` import
+    (ChatViewModel.kt:18).
+  - The `effectiveChatModel` / `effectiveImageModel` computed getters (ChatViewModel.kt:48–49,
+    70–73) and the `characterChatModel` / `characterImageModel` `UiState` fields. **Repoint** their
+    two consumers — `ChatScreen.kt:128` (`activeModel`) and the model selection in
+    `ChatViewModel.send` (line 260) — directly at `defaultChatModel` / `defaultImageModel`.
+  - Lifetime spend, FX intensity, and the global default chat/image models stay.
+- `Conversation.characterId`: **dropped now** (YAGNI; `Conversation` is an unused future-persistence
+  model with no construction sites), along with its doc comment (Conversation.kt:2–3) and the now
+  orphaned `CharacterId` value class (Ids.kt:16). Re-added as `agentProfileId` when profiles land.
 
 ## Data flow (after)
 
@@ -131,7 +150,9 @@ OpenAiCompatibleProvider.toWire -> [{role:"system", ...}, ...] -> SSE stream (un
 
 ## Impact on DESIGN.md
 
-`DESIGN.md` §4/§7 (persona composed at request time; Character Card V2/V3 as canonical model)
+`DESIGN.md` §4 (persona composed at request time) and §7 (Character Card V2/V3 as canonical model)
 should be updated to reflect that the persona/character-card path is removed in favour of the
-system-prompt + `AGENTS.md` two-layer model. A decision-log (§14) entry should record this reversal.
-This doc-update is part of implementation, not a separate spec.
+system-prompt + `AGENTS.md` two-layer model. §14 is an "Open Decisions for the User" table, not a
+decision log — add a short new "Decision log / reversals" subsection (or equivalent) recording this
+reversal rather than editing the open-decisions table. This doc-update is part of implementation,
+not a separate spec.
