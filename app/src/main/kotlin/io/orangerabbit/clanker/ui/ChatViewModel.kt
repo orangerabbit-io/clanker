@@ -92,8 +92,11 @@ class ChatViewModel(
     }
 
     fun setApiKey(value: String) {
-        _state.update { it.copy(apiKey = value) }
-        viewModelScope.launch { secrets.saveApiKey(value) }
+        // Trim: a stray space/newline (common on paste) makes "Bearer <key>" a malformed
+        // Authorization header, which OpenRouter rejects as "missing authentication header".
+        val key = value.trim()
+        _state.update { it.copy(apiKey = key) }
+        viewModelScope.launch { secrets.saveApiKey(key) }
     }
 
     fun setDefaultChatModel(value: String) {
