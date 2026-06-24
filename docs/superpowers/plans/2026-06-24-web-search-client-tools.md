@@ -36,7 +36,8 @@
 - `core/tools/src/commonMain/.../core/tools/ToolRegistry.kt` — `ToolRegistry`, `DispatchOutcome`.
 - `core/tools/src/commonMain/.../core/tools/exa/ExaClient.kt` — Ktor client + isolated Exa DTOs.
 - `core/tools/src/commonMain/.../core/tools/exa/WebTools.kt` — `ExaSearchTool`, `WebFetchTool`, `NativeToolProvider`.
-- `core/tools/src/commonTest/.../core/tools/ToolRegistryTest.kt`, `WebToolsTest.kt`, `LiveExaTest.kt`.
+- `core/tools/src/commonTest/.../core/tools/ToolRegistryTest.kt`, `exa/ExaClientTest.kt`, `exa/WebToolsTest.kt`.
+- `core/tools/src/jvmTest/.../core/tools/exa/LiveExaTest.kt` — **jvmTest, not commonTest** (`System.getenv` is JVM-only, mirroring `LiveOpenRouterTest`).
 
 **`:core:agent` (extend)**
 - `core/agent/build.gradle.kts` — add deps on `:core:model`, `:core:network`, `:core:tools`, coroutines.
@@ -136,7 +137,6 @@ git commit -m "build(tools): scaffold :core:tools module"
 ```kotlin
 package io.orangerabbit.clanker.core.tools
 
-import io.orangerabbit.clanker.core.model.ToolCall
 import kotlinx.serialization.json.JsonObject
 
 /** Where a tool comes from. Only [Native] is wired in this increment. */
@@ -356,11 +356,13 @@ data class DispatchOutcome(val reply: ChatMessage.Tool, val display: ToolDisplay
  * guarantees the agent loop never resends an unanswered `tool_call_id`.
  *
  * [idGen] supplies fresh message ids (the platform owns id generation; commonMain has no UUID).
+ * The default is a NON-UNIQUE placeholder for tests that don't assert on ids; production always
+ * injects a UUID generator (the app passes `{ UUID.randomUUID().toString() }`).
  */
 class ToolRegistry(
     private val providers: List<ToolProvider>,
     private val context: ToolContext,
-    private val idGen: () -> String = { "tool-msg" },
+    private val idGen: () -> String = { "tool-msg" }, // test-only default; inject a UUID gen in prod
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = false },
 ) {
     suspend fun toolSpecs(): List<ToolSpec> = allTools().map { tool ->
@@ -855,7 +857,7 @@ git commit -m "feat(tools): web_search + web_fetch tools with arg clamping"
 ### Task 6: LiveExaTest (self-skipping integration)
 
 **Files:**
-- Test: `core/tools/src/commonTest/kotlin/io/orangerabbit/clanker/core/tools/exa/LiveExaTest.kt`
+- Test: `core/tools/src/jvmTest/kotlin/io/orangerabbit/clanker/core/tools/exa/LiveExaTest.kt` — **must be under `jvmTest`**, because `System.getenv` is a JVM API unresolved in `commonTest` (this is why the existing `LiveOpenRouterTest` lives in `jvmTest`). KMP's `jvmTest` source set inherits `commonTest` dependencies, so no extra build-file deps are needed; only the directory placement matters. Putting this file in `commonTest` would fail to compile and break the whole `:core:tools:jvmTest` run.
 
 - [ ] **Step 1: Write the test** (mirrors the existing `LiveOpenRouterTest` self-skip pattern)
 
@@ -1399,7 +1401,11 @@ class ToolMessageWireTest {
                 toolCalls = listOf(ToolCall("call_1", "native__web_search", """{"query":"x"}"""))),
             ChatMessage.Tool(MessageId("t1"), toolCallId = "call_1", content = "results"),
         )
-        runCatching { provider.chat(ChatRequest(model = "m", messages = history)) }
+        // Use streamChat, NOT chat(): the repo's chat() throws UnsupportedOperationException and
+        // issues no HTTP request, so MockEngine would never run. streamChat issues the request
+        // (the engine lambda captures sentBody before responding); the SSE parse of "{}" yields
+        // nothing, which runCatching swallows — we only assert on the outbound body.
+        runCatching { provider.streamChat(ChatRequest(model = "m", messages = history)).collect {} }
         assertTrue(sentBody!!.contains("\"role\":\"tool\""))
         assertTrue(sentBody!!.contains("\"tool_call_id\":\"call_1\""))
         assertTrue(sentBody!!.contains("\"tool_calls\""))
@@ -1407,7 +1413,7 @@ class ToolMessageWireTest {
 }
 ```
 
-> If `chat()` requires a fuller response body to parse, the `runCatching` swallows the parse failure — we only assert on the *outbound* body, which is captured before the response is read.
+> The outbound `role:tool`/`tool_calls` body is produced only on the streaming path (`toWire` is reached via `streamChat`'s `preparePost`); `chat()` is an unimplemented stub. The engine lambda assigns `sentBody` before `respond(...)`, so the assertions hold even though SSE parsing of `{}` fails and is swallowed by `runCatching`.
 
 - [ ] **Step 3: Run**
 
@@ -1470,9 +1476,18 @@ git commit -m "feat(app): encrypted Exa API key storage in SecretStore"
 ### Task 12: Drive AgentLoop from ChatViewModel
 
 **Files:**
+- Modify: `app/build.gradle.kts`
 - Modify: `app/src/main/kotlin/io/orangerabbit/clanker/ui/ChatViewModel.kt`
 
 The app module has no unit tests (device-verified per repo convention), so this task is implement-then-build-then-device-verify.
+
+- [ ] **Step 0: Add the `:core:tools` dependency (required — the VM references it directly)**
+
+The app currently depends on `:core:model`, `:core:network`, `:core:agent`, `:core:designsystem` only; `:core:agent` uses `implementation` so `:core:tools` does NOT leak transitively. Add to the `dependencies {}` block of `app/build.gradle.kts`, after `implementation(project(":core:agent"))`:
+
+```kotlin
+    implementation(project(":core:tools"))
+```
 
 - [ ] **Step 1: Add Exa key state + loaders**
 
@@ -1498,10 +1513,14 @@ Add a setter mirroring `setApiKey`:
 
 Add `val toolDisplays: Map<String, io.orangerabbit.clanker.core.tools.ToolDisplay> = emptyMap()` keyed by `toolCallId`.
 
-- [ ] **Step 3: Replace `send()`'s streaming body with the AgentLoop**
+- [ ] **Step 3: Branch `send()` — image mode keeps the existing path; chat drives the AgentLoop**
 
-Replace the `streamJob = viewModelScope.launch { … }` block. Key changes:
-- Build a `ToolRegistry` + `AgentLoop` when `toolEnabled`, else an empty registry (no tools advertised).
+**Decision (resolves the image-mode/modalities question):** the `AgentLoop` does not carry `modalities` and discards `ImageDelta`, so image generation must NOT go through it. Branch `send()` on `current.imageMode`:
+- **`imageMode == true`** → keep the **existing** `streamJob = viewModelScope.launch { … provider.streamChat(request) … }` body **verbatim** (it already builds the `modalities = ["image","text"]` request, handles `ImageDelta`, and uses the optimistic assistant bubble). Image turns advertise no tools. Extract this existing body into a `private fun streamDirect(current: UiState, history: List<ChatMessage>, assistantId: MessageId)` and call it from the image branch, so it stays unchanged and is not duplicated.
+- **`imageMode == false`** → drop the optimistic bubble and drive the `AgentLoop` as below.
+
+Keep the `userMsg`/`history`/optimistic-bubble setup at the top of `send()` as-is (both branches use `history`); only the `streamJob = …` launch is branched. Key changes for the loop branch:
+- Build a `ToolRegistry` + `AgentLoop` when `current.toolEnabled`, else an empty registry (no tools advertised).
 - Collect `Flow<AgentEvent>` instead of `Flow<ChatEvent>`.
 - Maintain the transcript by folding events; keep the ~50ms throttle for `TextDelta`.
 
@@ -1587,7 +1606,7 @@ Replace the `streamJob = viewModelScope.launch { … }` block. Key changes:
         }
 ```
 
-> Note: the existing `send()` adds an optimistic streaming `Assistant` bubble before launching; the loop now owns bubble creation via `AssistantTurnStarted`, so the snippet drops that last optimistic message first. Keep the `history` value (user message appended) as-is. Keep image mode working: `modalities` is not yet threaded through `AgentLoop` — for this increment, image mode and tools are mutually exclusive in practice (image models rarely tool-call); leave the image path on the existing direct-stream code path OR thread `modalities` into `AgentLoop.run`. **Recommended for minimal risk:** add a `modalities: List<String>` param to `AgentLoop` and pass it into `ChatRequest`; if `imageMode`, also pass `emptyList()` toolSpecs by using the empty registry. Document whichever you choose.
+> Note: the existing `send()` adds an optimistic streaming `Assistant` bubble before launching; the loop branch now owns bubble creation via `AssistantTurnStarted`, so the loop-branch snippet drops that last optimistic message first (`it.messages.dropLast(1)`). The `streamDirect` (image) branch keeps using the optimistic bubble. `history` (user message appended) is computed once at the top of `send()` and used by both branches. Image generation therefore stays exactly as today; `AgentLoop` (Chunk 3) is untouched.
 
 - [ ] **Step 4: Build**
 
@@ -1608,7 +1627,7 @@ git commit -m "feat(app): drive the agent loop with web tools from ChatViewModel
 
 - [ ] **Step 1: Add a masked Exa-key field**
 
-Following the existing OpenRouter-key field (masked `OutlinedTextField` with `PasswordVisualTransformation`), add a parallel field bound to `state.exaKey` / `onSetExaKey`. Add an explanatory caption: "Enables web search & fetch tools. Get a key at exa.ai." Wire the `onSetExaKey` callback through to `viewModel.setExaKey`.
+`SettingsScreen` takes the `ChatViewModel` directly (no callback hoisting) — the OpenRouter-key field is a masked `OutlinedTextField` with `PasswordVisualTransformation` and `onValueChange = viewModel::setApiKey`. Add a parallel field directly below it bound to `state.exaKey` with `onValueChange = viewModel::setExaKey` (no new callback parameter). Add an explanatory caption: "Enables web search & fetch tools. Get a key at exa.ai." Reuse the exact masking/visual-transformation setup of the OpenRouter field.
 
 - [ ] **Step 2: Build**
 
@@ -1630,11 +1649,11 @@ git commit -m "feat(app): Settings field for the Exa API key"
 - [ ] **Step 1: Render tool calls and results as cards**
 
 In the transcript `LazyColumn`, handle the message roles that previously weren't shown:
-- `ChatMessage.Assistant` with non-empty `toolCalls` → a `ThemedCard` per call showing `🔍 native__web_search · <query from argumentsJson>` / `🌐 native__web_fetch · <url>`, collapsed by default, expandable to show args.
-- `ChatMessage.Tool` → a result card under its call, collapsed, showing the returned content (and `isError` styling when set).
-- Under the final assistant answer, render `state.toolDisplays` sources for that turn as tappable chips (open URL via an `Intent.ACTION_VIEW`).
+- `ChatMessage.Assistant` with non-empty `toolCalls` → a `ThemedCard` per call showing `🔍 native__web_search · <query from argumentsJson>` / `🌐 native__web_fetch · <url>`, collapsed by default (local `remember { mutableStateOf(false) }` expanded flag), expandable to show the raw args. Parse the query/url for the label from `ToolCall.argumentsJson` with a tolerant `Json { ignoreUnknownKeys = true }.parseToJsonElement(...).jsonObject` inside `runCatching`, falling back to the raw `name` on failure.
+- `ChatMessage.Tool` → a result card, collapsed, showing the returned `content` (and `isError` styling when set). **Render the source chips here, on the Tool card itself** — look up `state.toolDisplays[msg.toolCallId]`; if it is a `ToolDisplay.Search`, render its `sources` as tappable chips. This keys chips to their own tool result (no walking back to associate with a trailing assistant bubble). For `ToolDisplay.Fetch`, render the single URL as a chip.
+- Each chip opens its URL: capture `val context = LocalContext.current` in the composable and on tap call `context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))` (imports: `android.content.Intent`, `android.net.Uri`, `androidx.compose.ui.platform.LocalContext`).
 
-Keep `key = { it.id.value }` stable content keys and a `contentType` per role (existing pattern). Use existing design-system components (`ThemedCard`, `ThemedSectionHeader`). Parse the query/url for the card label from `ToolCall.argumentsJson` with a tolerant `Json` parse (fall back to the raw name on failure).
+The existing `items(items = state.messages, key = { it.id.value })` has stable keys but **no `contentType`** today — do not invent a precedent; either omit `contentType` or add `contentType = { it::class }` to the `items(...)` call (optional perf nicety). Use existing design-system components (`ThemedCard`, `ThemedSectionHeader`) to match the cyberpunk surface.
 
 - [ ] **Step 2: Build**
 
@@ -1665,9 +1684,9 @@ relied on. If a tool returns an error, tell the user plainly rather than inventi
 You take no other actions on the user's systems.
 ```
 
-- [ ] **Step 2: Fix the test**
+- [ ] **Step 2: Adjust the test**
 
-If `SystemPromptTest` asserts the old "no tools" sentence, update it to assert the new tool-mention wording (and that `composeSystemPrompt("")` still returns `SystemPrompt.TEXT` unchanged).
+The existing `SystemPromptTest` does NOT pin the "no tools" sentence (its assertions are `contains("clanker")`, the blank/whitespace-compose cases, and the append behavior), so the prompt edit keeps it green as-is. Add one assertion that the new text mentions the tools, e.g. `assertTrue(SystemPrompt.TEXT.contains("native__web_search"))`, and confirm the existing `composeSystemPrompt("") == SystemPrompt.TEXT` invariant still holds (it does — only `TEXT`'s body changes).
 
 - [ ] **Step 3: Run**
 
