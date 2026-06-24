@@ -125,7 +125,7 @@ fun ChatScreen(
             }
         }
         // Active model + running cost. Plain text — this updates during use, so no animation.
-        val activeModel = if (state.imageMode) state.effectiveImageModel else state.effectiveChatModel
+        val activeModel = if (state.imageMode) state.defaultImageModel else state.defaultChatModel
         Text(
             text = buildString {
                 append("// ")

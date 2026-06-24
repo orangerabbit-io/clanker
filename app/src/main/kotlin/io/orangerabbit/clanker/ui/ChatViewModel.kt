@@ -10,12 +10,9 @@ import io.orangerabbit.clanker.core.model.MessageId
 import io.orangerabbit.clanker.core.model.MsgLifecycle
 import io.orangerabbit.clanker.core.network.ChatEvent
 import io.orangerabbit.clanker.core.network.ChatRequest
-import io.orangerabbit.clanker.core.character.CharacterCard
-import io.orangerabbit.clanker.core.character.CharacterCardParser
-import io.orangerabbit.clanker.core.character.Persona
+import io.orangerabbit.clanker.core.agent.composeSystemPrompt
 import io.orangerabbit.clanker.core.network.ModelInfo
 import io.orangerabbit.clanker.core.network.openRouterProvider
-import io.orangerabbit.clanker.data.CharacterModels
 import io.orangerabbit.clanker.data.SecretStore
 import io.orangerabbit.clanker.data.Settings
 import io.orangerabbit.clanker.data.SettingsStore
@@ -29,9 +26,10 @@ import java.util.UUID
 
 /**
  * Holds chat state and drives the streaming loop. The API key is encrypted-at-rest ([SecretStore]);
- * model defaults + per-character overrides + FX are non-secret ([SettingsStore]). The effective
- * model for a turn is `character override ?: global default`, and image mode swaps the chat model
- * for the image model.
+ * model defaults + agent instructions + FX are non-secret ([SettingsStore]). Each request is
+ * prefixed with a System message composed at request time from the fixed system prompt plus the
+ * user-editable `AGENTS.md` (`composeSystemPrompt`), and image mode swaps the chat model for the
+ * image model.
  */
 @Inject
 class ChatViewModel(
@@ -44,13 +42,11 @@ class ChatViewModel(
         val apiKey: String = "",
         val defaultChatModel: String = Settings.DEFAULT_CHAT_MODEL,
         val defaultImageModel: String = Settings.DEFAULT_IMAGE_MODEL,
-        /** Per-character overrides for the loaded character; null = use the matching default. */
-        val characterChatModel: String? = null,
-        val characterImageModel: String? = null,
+        /** User-editable agent instructions (Layer 1, `AGENTS.md`). */
+        val agentsMd: String = "",
         val fxIntensity: Float = 1f,
         val availableModels: List<ModelInfo> = emptyList(),
         val modelsLoading: Boolean = false,
-        val character: CharacterCard? = null,
         val messages: List<ChatMessage> = emptyList(),
         val streaming: Boolean = false,
         val error: String? = null,
@@ -65,13 +61,7 @@ class ChatViewModel(
         /** Result of the last "test connection" probe; null = not run. */
         val keyTest: String? = null,
         val testingKey: Boolean = false,
-    ) {
-        /** The chat model actually used: the character's override, else the global default. */
-        val effectiveChatModel: String get() = characterChatModel ?: defaultChatModel
-
-        /** The image model actually used: the character's override, else the global default. */
-        val effectiveImageModel: String get() = characterImageModel ?: defaultImageModel
-    }
+    )
 
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
@@ -89,6 +79,7 @@ class ChatViewModel(
                     it.copy(
                         defaultChatModel = s.defaultChatModel,
                         defaultImageModel = s.defaultImageModel,
+                        agentsMd = s.agentsMd,
                         fxIntensity = s.fxIntensity,
                         lifetimeCostUsd = s.lifetimeCostUsd,
                     )
@@ -156,12 +147,9 @@ class ChatViewModel(
         viewModelScope.launch { settingsStore.resetLifetimeCost() }
     }
 
-    /** Assigns/clears the loaded character's model overrides (blank = fall back to default). */
-    fun setCharacterModels(chatModel: String?, imageModel: String?) {
-        val name = _state.value.character?.name ?: return
-        val models = CharacterModels(chatModel?.ifBlank { null }, imageModel?.ifBlank { null })
-        _state.update { it.copy(characterChatModel = models.chatModel, characterImageModel = models.imageModel) }
-        viewModelScope.launch { settingsStore.setCharacterModels(name, models) }
+    fun setAgentsMd(value: String) {
+        _state.update { it.copy(agentsMd = value) }
+        viewModelScope.launch { settingsStore.setAgentsMd(value) }
     }
 
     fun setImageMode(value: Boolean) = _state.update { it.copy(imageMode = value) }
@@ -173,42 +161,6 @@ class ChatViewModel(
     }
 
     fun clearPendingImages() = _state.update { it.copy(pendingImages = emptyList()) }
-
-    /** Imports a Character Card from raw bytes (PNG with embedded card, or JSON) and applies it. */
-    fun applyCardBytes(bytes: ByteArray) {
-        viewModelScope.launch {
-            try {
-                val card = if (isPng(bytes)) {
-                    CharacterCardParser.fromPng(bytes)
-                } else {
-                    CharacterCardParser.fromJson(bytes.decodeToString())
-                }
-                val greeting = Persona.greeting(card)
-                val seeded = if (greeting.isNotBlank()) {
-                    listOf(ChatMessage.Assistant(MessageId(newId()), content = greeting))
-                } else {
-                    emptyList()
-                }
-                // Restore any per-character model overrides assigned to this card previously.
-                val overrides = settingsStore.characterModels(card.name)
-                _state.update {
-                    it.copy(
-                        character = card,
-                        characterChatModel = overrides.chatModel,
-                        characterImageModel = overrides.imageModel,
-                        messages = seeded,
-                        error = null,
-                    )
-                }
-            } catch (e: Throwable) {
-                _state.update { it.copy(error = "Card import failed: ${e.message}") }
-            }
-        }
-    }
-
-    private fun isPng(bytes: ByteArray): Boolean =
-        bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() &&
-            bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()
 
     /** Fetches the provider's model catalogue for the dropdown. No-op without an API key. */
     fun loadModels() {
@@ -251,13 +203,13 @@ class ChatViewModel(
 
         streamJob = viewModelScope.launch {
             val provider = openRouterProvider(apiKey = current.apiKey, engine = engine)
-            // Persona is composed into a System message at request time, never stored in history.
-            val systemMessages = current.character?.let {
-                listOf(ChatMessage.System(MessageId(newId()), Persona.systemPrompt(it)))
-            } ?: emptyList()
-            // Image mode routes to the (per-character or default) image model; otherwise the chat model.
+            // The agent definition (fixed) + AGENTS.md (user) is composed at request time,
+            // never stored in history, so edits apply retroactively.
+            val systemMessages = listOf(
+                ChatMessage.System(MessageId(newId()), composeSystemPrompt(current.agentsMd)),
+            )
             val request = ChatRequest(
-                model = if (current.imageMode) current.effectiveImageModel else current.effectiveChatModel,
+                model = if (current.imageMode) current.defaultImageModel else current.defaultChatModel,
                 messages = systemMessages + history,
                 modalities = if (current.imageMode) listOf("image", "text") else emptyList(),
             )

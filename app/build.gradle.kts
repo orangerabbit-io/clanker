@@ -36,7 +36,7 @@ android {
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:network"))
-    implementation(project(":core:character"))
+    implementation(project(":core:agent"))
     implementation(project(":core:designsystem"))
 
     implementation(libs.kotlinx.coroutines.core)
