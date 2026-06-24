@@ -9,6 +9,9 @@ import io.orangerabbit.clanker.core.model.MessageId
 import io.orangerabbit.clanker.core.model.MsgLifecycle
 import io.orangerabbit.clanker.core.network.ChatEvent
 import io.orangerabbit.clanker.core.network.ChatRequest
+import io.orangerabbit.clanker.core.character.CharacterCard
+import io.orangerabbit.clanker.core.character.CharacterCardParser
+import io.orangerabbit.clanker.core.character.Persona
 import io.orangerabbit.clanker.core.network.ModelInfo
 import io.orangerabbit.clanker.core.network.openRouterProvider
 import io.orangerabbit.clanker.data.SecretStore
@@ -34,6 +37,7 @@ class ChatViewModel(
         val model: String = "openai/gpt-4o-mini",
         val availableModels: List<ModelInfo> = emptyList(),
         val modelsLoading: Boolean = false,
+        val character: CharacterCard? = null,
         val messages: List<ChatMessage> = emptyList(),
         val streaming: Boolean = false,
         val error: String? = null,
@@ -53,6 +57,32 @@ class ChatViewModel(
         viewModelScope.launch { secrets.saveApiKey(value) }
     }
     fun setModel(value: String) = _state.update { it.copy(model = value) }
+
+    /** Imports a Character Card from raw bytes (PNG with embedded card, or JSON) and applies it. */
+    fun applyCardBytes(bytes: ByteArray) {
+        viewModelScope.launch {
+            try {
+                val card = if (isPng(bytes)) {
+                    CharacterCardParser.fromPng(bytes)
+                } else {
+                    CharacterCardParser.fromJson(bytes.decodeToString())
+                }
+                val greeting = Persona.greeting(card)
+                val seeded = if (greeting.isNotBlank()) {
+                    listOf(ChatMessage.Assistant(MessageId(newId()), content = greeting))
+                } else {
+                    emptyList()
+                }
+                _state.update { it.copy(character = card, messages = seeded, error = null) }
+            } catch (e: Throwable) {
+                _state.update { it.copy(error = "Card import failed: ${e.message}") }
+            }
+        }
+    }
+
+    private fun isPng(bytes: ByteArray): Boolean =
+        bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() &&
+            bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()
 
     /** Fetches the provider's model catalogue for the dropdown. No-op without an API key. */
     fun loadModels() {
@@ -88,7 +118,11 @@ class ChatViewModel(
 
         viewModelScope.launch {
             val provider = openRouterProvider(apiKey = current.apiKey, engine = engine)
-            val request = ChatRequest(model = current.model, messages = history)
+            // Persona is composed into a System message at request time, never stored in history.
+            val systemMessages = current.character?.let {
+                listOf(ChatMessage.System(MessageId(newId()), Persona.systemPrompt(it)))
+            } ?: emptyList()
+            val request = ChatRequest(model = current.model, messages = systemMessages + history)
             val buffer = StringBuilder()
             var lastUiUpdate = 0L
             try {
