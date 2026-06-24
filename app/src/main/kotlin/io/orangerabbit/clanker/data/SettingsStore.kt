@@ -2,6 +2,7 @@ package io.orangerabbit.clanker.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -21,6 +22,8 @@ data class Settings(
     val defaultImageModel: String = DEFAULT_IMAGE_MODEL,
     /** Master cyberpunk-FX intensity, 0f (flat) .. 1f (full glow/glitch/CRT). */
     val fxIntensity: Float = 1f,
+    /** Cumulative spend across all sessions (USD), from OpenRouter's reported per-request cost. */
+    val lifetimeCostUsd: Double = 0.0,
 ) {
     companion object {
         const val DEFAULT_CHAT_MODEL = "openai/gpt-4o-mini"
@@ -51,6 +54,13 @@ class SettingsStore(private val context: Context) {
     suspend fun setFxIntensity(value: Float) =
         context.settingsDataStore.edit { it[FX_INTENSITY] = value }.let { }
 
+    /** Adds a turn's cost to the persisted lifetime total (read-modify-write under DataStore's lock). */
+    suspend fun addLifetimeCost(delta: Double) =
+        context.settingsDataStore.edit { it[LIFETIME_COST] = (it[LIFETIME_COST] ?: 0.0) + delta }.let { }
+
+    suspend fun resetLifetimeCost() =
+        context.settingsDataStore.edit { it[LIFETIME_COST] = 0.0 }.let { }
+
     /** Persists a per-character override (empty string clears that field back to the default). */
     suspend fun setCharacterModels(name: String, models: CharacterModels) {
         context.settingsDataStore.edit { prefs ->
@@ -72,12 +82,14 @@ class SettingsStore(private val context: Context) {
         defaultChatModel = this[DEFAULT_CHAT] ?: Settings.DEFAULT_CHAT_MODEL,
         defaultImageModel = this[DEFAULT_IMAGE] ?: Settings.DEFAULT_IMAGE_MODEL,
         fxIntensity = this[FX_INTENSITY] ?: 1f,
+        lifetimeCostUsd = this[LIFETIME_COST] ?: 0.0,
     )
 
     private companion object {
         val DEFAULT_CHAT = stringPreferencesKey("default_chat_model")
         val DEFAULT_IMAGE = stringPreferencesKey("default_image_model")
         val FX_INTENSITY = floatPreferencesKey("fx_intensity")
+        val LIFETIME_COST = doublePreferencesKey("lifetime_cost_usd")
         fun chatKey(name: String) = stringPreferencesKey("cm_chat::$name")
         fun imageKey(name: String) = stringPreferencesKey("cm_image::$name")
     }

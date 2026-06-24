@@ -79,6 +79,7 @@ class OpenAiCompatibleProviderTest {
         val bodyText = (req.body as TextContent).text
         assertTrue(bodyText.contains("\"stream\":true"), "body missing stream flag: $bodyText")
         assertTrue(bodyText.contains("\"model\":\"openai/gpt-4o\""), "body missing model: $bodyText")
+        assertTrue(bodyText.contains("\"usage\":{\"include\":true}"), "body missing usage accounting opt-in: $bodyText")
     }
 
     @Test

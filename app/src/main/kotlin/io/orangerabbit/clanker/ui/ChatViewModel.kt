@@ -60,6 +60,8 @@ class ChatViewModel(
         val pendingImages: List<String> = emptyList(),
         /** Running conversation cost in USD, accumulated from the trailing usage chunk. */
         val costUsd: Double = 0.0,
+        /** Persisted cumulative spend across all sessions (USD). */
+        val lifetimeCostUsd: Double = 0.0,
         /** Result of the last "test connection" probe; null = not run. */
         val keyTest: String? = null,
         val testingKey: Boolean = false,
@@ -88,6 +90,7 @@ class ChatViewModel(
                         defaultChatModel = s.defaultChatModel,
                         defaultImageModel = s.defaultImageModel,
                         fxIntensity = s.fxIntensity,
+                        lifetimeCostUsd = s.lifetimeCostUsd,
                     )
                 }
             }
@@ -147,6 +150,10 @@ class ChatViewModel(
     fun setFxIntensity(value: Float) {
         _state.update { it.copy(fxIntensity = value) }
         viewModelScope.launch { settingsStore.setFxIntensity(value) }
+    }
+
+    fun resetLifetimeCost() {
+        viewModelScope.launch { settingsStore.resetLifetimeCost() }
     }
 
     /** Assigns/clears the loaded character's model overrides (blank = fall back to default). */
@@ -275,7 +282,10 @@ class ChatViewModel(
                             updateAssistant(assistantId, buffer.toString(), images, MsgLifecycle.Streaming)
                         }
                         is ChatEvent.UsageReport ->
-                            event.usage.costUsd?.let { c -> _state.update { it.copy(costUsd = it.costUsd + c) } }
+                            event.usage.costUsd?.let { c ->
+                                _state.update { it.copy(costUsd = it.costUsd + c) }
+                                settingsStore.addLifetimeCost(c) // persisted lifetime total
+                            }
                         is ChatEvent.Finished ->
                             updateAssistant(assistantId, buffer.toString(), images, MsgLifecycle.Complete)
                         is ChatEvent.Failed -> {

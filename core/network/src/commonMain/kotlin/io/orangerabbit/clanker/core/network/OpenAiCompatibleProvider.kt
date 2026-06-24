@@ -164,6 +164,7 @@ class OpenAiCompatibleProvider(
         tools = tools.takeIf { it.isNotEmpty() }?.map { it.toWire() },
         parallelToolCalls = parallelToolCalls,
         modalities = modalities.takeIf { it.isNotEmpty() },
+        usage = UsageInclude(include = true), // guarantee usage+cost in the trailing chunk
     )
 
     private fun ChatMessage.toWire(): WireMessage = when (this) {
@@ -275,7 +276,12 @@ private data class ChatCompletionRequest(
     val tools: List<WireTool>? = null,
     @SerialName("parallel_tool_calls") val parallelToolCalls: Boolean? = null,
     val modalities: List<String>? = null,
+    val usage: UsageInclude? = null,
 )
+
+/** Opt into usage accounting so OpenRouter returns the `cost` field in the trailing usage chunk. */
+@Serializable
+private data class UsageInclude(val include: Boolean)
 
 @Serializable
 private data class WireMessage(

@@ -40,6 +40,7 @@ import io.orangerabbit.clanker.core.network.Capability
 import io.orangerabbit.clanker.core.network.ModelInfo
 import io.orangerabbit.ui.components.ThemedButton
 import io.orangerabbit.ui.components.ThemedButtonAccent
+import io.orangerabbit.ui.components.ThemedInfoRow
 import io.orangerabbit.ui.components.ThemedSectionHeader
 import io.orangerabbit.ui.components.ThemedSliderRow
 import io.orangerabbit.ui.effects.GlitchText
@@ -188,6 +189,20 @@ fun SettingsScreen(viewModel: ChatViewModel, onBack: () -> Unit, modifier: Modif
                 state.character?.let { "PERSONA: ${it.name}" } ?: "IMPORT PERSONA (PNG/JSON)",
                 style = MaterialTheme.typography.labelMedium,
             )
+        }
+
+        ThemedSectionHeader(title = "usage", accentColor = MaterialTheme.colorScheme.tertiary)
+        ThemedInfoRow(
+            label = "lifetime spend",
+            value = "$${"%.5f".format(state.lifetimeCostUsd)}",
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        ThemedButton(
+            onClick = viewModel::resetLifetimeCost,
+            accent = ThemedButtonAccent.Neutral,
+            modifier = Modifier.padding(top = 4.dp),
+        ) {
+            Text("RESET TOTAL", style = MaterialTheme.typography.labelMedium)
         }
 
         ThemedSectionHeader(title = "fx")
