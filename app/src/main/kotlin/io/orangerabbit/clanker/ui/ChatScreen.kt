@@ -90,11 +90,13 @@ fun ChatScreen(
     }
 
     // Stick to the bottom as messages arrive and the last one streams in. Instant (not animated):
-    // animateScrollToItem visibly "flips through" the list on every token/new message; a plain jump
-    // to the last item keeps the latest content in view without the scroll-through animation.
+    // The list is reverseLayout (newest = index 0 = bottom), so the bottom edge is the anchor:
+    // streamed text grows the bottom bubble upward without ever unsticking the view, no scrollOffset
+    // tricks needed. Keep it pinned to the newest item, but only when the user is already at the
+    // bottom — if they've scrolled up to read history, don't yank them back mid-stream.
     val lastLen = (state.messages.lastOrNull() as? ChatMessage.Assistant)?.content?.length ?: 0
     LaunchedEffect(state.messages.size, lastLen) {
-        if (state.messages.isNotEmpty()) listState.scrollToItem(state.messages.lastIndex)
+        if (listState.firstVisibleItemIndex <= 1) listState.scrollToItem(0)
     }
 
     Column(
@@ -154,9 +156,12 @@ fun ChatScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxWidth().weight(1f),
+            reverseLayout = true,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(items = state.messages, key = { it.id.value }) { msg ->
+            // reverseLayout draws index 0 at the bottom, so feed newest-first to keep chronological
+            // order on screen (oldest at top, newest at bottom).
+            items(items = state.messages.asReversed(), key = { it.id.value }) { msg ->
                 MessageBubble(msg, onImageTap = { zoomed = it })
             }
         }
@@ -290,6 +295,15 @@ private fun MessageBubble(message: ChatMessage, onImageTap: (ImageBitmap) -> Uni
             when {
                 body.isEmpty() && images.isEmpty() && message.lifecycle == MsgLifecycle.Streaming ->
                     Text(text = "▌", style = MaterialTheme.typography.bodyMedium)
+                // While streaming, render plain text — re-parsing the full Markdown on every throttled
+                // token is expensive and its shifting height makes the scroll jump. Markdown is
+                // applied once the turn completes.
+                message is ChatMessage.Assistant && body.isNotEmpty() && message.lifecycle == MsgLifecycle.Streaming ->
+                    Text(
+                        text = body,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                 message is ChatMessage.Assistant && body.isNotEmpty() ->
                     Markdown(content = body)
                 body.isNotEmpty() ->
