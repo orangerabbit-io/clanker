@@ -211,15 +211,17 @@ class ChatViewModel(
                 ChatMessage.System(MessageId(newId()), composeSystemPrompt(current.agentsMd)),
             )
             val modelId = if (current.imageMode) current.defaultImageModel else current.defaultChatModel
-            // Null when the catalogue hasn't been fetched (fresh send before TEST CONNECTION / model
-            // dropdown) — defaultServerTools treats unknown capability as "enable", so web search
-            // isn't silently dropped. Image generation is not in that set; image mode owns it via the
-            // modalities path + the settings image model.
+            // Image mode talks to an image-output model that rejects a `tools` array, so NEVER attach
+            // server tools there — it owns image output via `modalities`. In chat mode, modelCaps is
+            // null when the catalogue hasn't been fetched (fresh send before TEST CONNECTION / model
+            // dropdown); defaultServerTools then enables optimistically so web search isn't silently
+            // dropped.
             val modelCaps = current.availableModels.find { it.id == modelId }?.capabilities
+            val serverTools = if (current.imageMode) emptyList() else defaultServerTools(modelCaps)
             val request = ChatRequest(
                 model = modelId,
                 messages = systemMessages + history,
-                serverTools = defaultServerTools(modelCaps),
+                serverTools = serverTools,
                 modalities = if (current.imageMode) listOf("image", "text") else emptyList(),
             )
             val buffer = StringBuilder()
