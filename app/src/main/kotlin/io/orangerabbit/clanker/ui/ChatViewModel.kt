@@ -212,6 +212,9 @@ class ChatViewModel(
             )
             val modelId = if (current.imageMode) current.defaultImageModel else current.defaultChatModel
             val modelCaps = current.availableModels.find { it.id == modelId }?.capabilities ?: emptySet()
+            // Server tools are gated on ToolCalling. In image mode the `modalities` path owns image
+            // output; current image models don't advertise `tools`, so defaultServerTools resolves to
+            // empty there and the two image mechanisms never overlap. Revisit if that ceases to hold.
             val request = ChatRequest(
                 model = modelId,
                 messages = systemMessages + history,
