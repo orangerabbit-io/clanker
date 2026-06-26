@@ -12,6 +12,8 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +52,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
@@ -256,6 +260,7 @@ fun ChatScreen(
     zoomed?.let { ZoomableImageDialog(it) { zoomed = null } }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MessageBubble(message: ChatMessage, onImageTap: (ImageBitmap) -> Unit) {
     val accent = when (message) {
@@ -274,6 +279,7 @@ private fun MessageBubble(message: ChatMessage, onImageTap: (ImageBitmap) -> Uni
         is ChatMessage.Assistant -> message.imageUrls
         else -> emptyList()
     }
+    val citations = (message as? ChatMessage.Assistant)?.citations ?: emptyList()
 
     ThemedCard(borderColor = accent, glowColor = accent) {
         Column {
@@ -309,9 +315,37 @@ private fun MessageBubble(message: ChatMessage, onImageTap: (ImageBitmap) -> Uni
                     )
                 }
             }
+            if (citations.isNotEmpty()) {
+                val uriHandler = LocalUriHandler.current
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    citations.distinctBy { it.url }.forEachIndexed { i, c ->
+                        AssistChip(
+                            onClick = { runCatching { uriHandler.openUri(c.url) } },
+                            label = {
+                                Text(
+                                    text = c.title?.takeIf { it.isNotBlank() } ?: hostOf(c.url),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                )
+                            },
+                            leadingIcon = {
+                                Text("${i + 1}", style = MaterialTheme.typography.labelSmall)
+                            },
+                        )
+                    }
+                }
+            }
         }
     }
 }
+
+/** Best-effort host extraction for a citation chip label when no title is available. */
+private fun hostOf(url: String): String =
+    url.substringAfter("://").substringBefore("/").removePrefix("www.").ifBlank { url }
 
 /** Full-screen pinch-to-zoom / pan viewer for a tapped image. Tap the backdrop to dismiss. */
 @Composable
