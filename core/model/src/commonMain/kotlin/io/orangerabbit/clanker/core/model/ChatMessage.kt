@@ -47,6 +47,8 @@ sealed interface ChatMessage {
          * the Chat Completions input schema has no assistant-image slot.
          */
         val imageUrls: List<String> = emptyList(),
+        /** Web sources cited by server-executed web tools, for source-chip display. */
+        val citations: List<Citation> = emptyList(),
         override val lifecycle: MsgLifecycle = MsgLifecycle.Complete,
     ) : ChatMessage
 
