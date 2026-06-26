@@ -92,10 +92,12 @@ fun ChatScreen(
         }
     }
 
-    // Follow the conversation: re-scroll on a new message and as the last message streams in.
+    // Stick to the bottom as messages arrive and the last one streams in. Instant (not animated):
+    // animateScrollToItem visibly "flips through" the list on every token/new message; a plain jump
+    // to the last item keeps the latest content in view without the scroll-through animation.
     val lastLen = (state.messages.lastOrNull() as? ChatMessage.Assistant)?.content?.length ?: 0
     LaunchedEffect(state.messages.size, lastLen) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+        if (state.messages.isNotEmpty()) listState.scrollToItem(state.messages.lastIndex)
     }
 
     Column(
