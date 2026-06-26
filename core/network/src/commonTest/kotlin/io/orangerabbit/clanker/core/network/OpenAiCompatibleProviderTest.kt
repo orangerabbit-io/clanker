@@ -197,6 +197,64 @@ class OpenAiCompatibleProviderTest {
     }
 
     @Test
+    fun defaultServerToolsEnabledOnlyForToolCapableModels() {
+        val capable = defaultServerTools(setOf(Capability.Streaming, Capability.ToolCalling))
+        assertEquals(4, capable.size)
+        assertTrue(capable.any { it is ServerTool.WebSearch })
+        assertTrue(capable.contains(ServerTool.WebFetch))
+        assertTrue(capable.contains(ServerTool.Datetime))
+        assertTrue(capable.any { it is ServerTool.ImageGeneration })
+
+        assertEquals(emptyList(), defaultServerTools(setOf(Capability.Streaming)))
+    }
+
+    @Test
+    fun serverToolsAreSerializedIntoToolsArray() = runTest {
+        var captured: HttpRequestData? = null
+        val engine = MockEngine { request ->
+            captured = request
+            respond(
+                content = "data: [DONE]\n\n",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "text/event-stream"),
+            )
+        }
+        val request = sampleRequest.copy(
+            serverTools = listOf(
+                ServerTool.WebSearch(maxResults = 5),
+                ServerTool.WebFetch,
+                ServerTool.Datetime,
+                ServerTool.ImageGeneration(),
+            ),
+        )
+        provider(engine).streamChat(request).toList()
+
+        val bodyText = (requireNotNull(captured).body as TextContent).text
+        assertTrue(bodyText.contains("\"type\":\"openrouter:web_search\""), "missing web_search: $bodyText")
+        assertTrue(bodyText.contains("\"engine\":\"auto\""), "web_search missing engine=auto: $bodyText")
+        assertTrue(bodyText.contains("\"max_results\":5"), "web_search missing max_results: $bodyText")
+        assertTrue(bodyText.contains("\"type\":\"openrouter:web_fetch\""), "missing web_fetch: $bodyText")
+        assertTrue(bodyText.contains("\"type\":\"openrouter:datetime\""), "missing datetime: $bodyText")
+        assertTrue(bodyText.contains("\"type\":\"openrouter:image_generation\""), "missing image_generation: $bodyText")
+    }
+
+    @Test
+    fun noToolsMeansNoToolsKeyInBody() = runTest {
+        var captured: HttpRequestData? = null
+        val engine = MockEngine { request ->
+            captured = request
+            respond(
+                content = "data: [DONE]\n\n",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "text/event-stream"),
+            )
+        }
+        provider(engine).streamChat(sampleRequest).toList()
+        val bodyText = (requireNotNull(captured).body as TextContent).text
+        assertTrue(!bodyText.contains("\"tools\""), "tools key should be absent when empty: $bodyText")
+    }
+
+    @Test
     fun serverErrorIsRetryable() = runTest {
         val engine = MockEngine {
             respondError(status = HttpStatusCode.ServiceUnavailable, content = "overloaded")

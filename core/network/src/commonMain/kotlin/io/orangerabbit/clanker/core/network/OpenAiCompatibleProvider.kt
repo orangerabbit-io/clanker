@@ -26,11 +26,15 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -171,11 +175,40 @@ class OpenAiCompatibleProvider(
         stream = stream,
         temperature = temperature,
         maxTokens = maxTokens,
-        tools = tools.takeIf { it.isNotEmpty() }?.map { it.toWire() },
+        tools = toWireTools(),
         parallelToolCalls = parallelToolCalls,
         modalities = modalities.takeIf { it.isNotEmpty() },
         usage = UsageInclude(include = true), // guarantee usage+cost in the trailing chunk
     )
+
+    /** Merge function tools and server tools into the single wire `tools` array (null when empty). */
+    private fun ChatRequest.toWireTools(): JsonArray? {
+        if (tools.isEmpty() && serverTools.isEmpty()) return null
+        return buildJsonArray {
+            tools.forEach { add(json.encodeToJsonElement(WireTool.serializer(), it.toWire())) }
+            serverTools.forEach { add(json.encodeToJsonElement(WireServerTool.serializer(), it.toWireServerTool())) }
+        }
+    }
+
+    private fun ServerTool.toWireServerTool(): WireServerTool = when (this) {
+        is ServerTool.WebSearch -> WireServerTool(
+            type = "openrouter:web_search",
+            parameters = buildJsonObject {
+                put("engine", engine)
+                maxResults?.let { put("max_results", it) }
+            },
+        )
+        ServerTool.WebFetch -> WireServerTool(type = "openrouter:web_fetch")
+        ServerTool.Datetime -> WireServerTool(type = "openrouter:datetime")
+        is ServerTool.ImageGeneration -> WireServerTool(
+            type = "openrouter:image_generation",
+            parameters = buildJsonObject {
+                model?.let { put("model", it) }
+                size?.let { put("size", it) }
+                quality?.let { put("quality", it) }
+            }.takeIf { it.isNotEmpty() },
+        )
+    }
 
     private fun ChatMessage.toWire(): WireMessage = when (this) {
         is ChatMessage.System -> WireMessage(role = "system", content = textContent(content))
@@ -289,7 +322,7 @@ private data class ChatCompletionRequest(
     val stream: Boolean,
     val temperature: Double? = null,
     @SerialName("max_tokens") val maxTokens: Int? = null,
-    val tools: List<WireTool>? = null,
+    val tools: JsonArray? = null,
     @SerialName("parallel_tool_calls") val parallelToolCalls: Boolean? = null,
     val modalities: List<String>? = null,
     val usage: UsageInclude? = null,
@@ -320,6 +353,12 @@ private data class WireFunctionCall(val name: String, val arguments: String)
 
 @Serializable
 private data class WireTool(val type: String = "function", val function: WireFunction)
+
+@Serializable
+private data class WireServerTool(
+    val type: String,
+    val parameters: JsonObject? = null,
+)
 
 @Serializable
 private data class WireFunction(

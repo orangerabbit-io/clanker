@@ -27,6 +27,12 @@ data class ChatRequest(
     val model: String,
     val messages: List<ChatMessage>,
     val tools: List<ToolSpec> = emptyList(),
+    /**
+     * OpenRouter server tools (e.g. web search) advertised in the request. OpenRouter executes
+     * these server-side within the same completion; the client never runs them and never returns a
+     * `role:tool` reply. Serialized into the same wire `tools` array as [tools].
+     */
+    val serverTools: List<ServerTool> = emptyList(),
     val temperature: Double? = null,
     val maxTokens: Int? = null,
     val parallelToolCalls: Boolean? = null,
@@ -44,6 +50,39 @@ data class ToolSpec(
     val description: String,
     val parametersJsonSchema: String,
 )
+
+/**
+ * An OpenRouter server tool: a model-callable tool OpenRouter operates server-side. Declared in the
+ * request `tools` array as `{"type":"openrouter:…","parameters":{…}}`. Results stream back inline
+ * (web tools surface as `url_citation` annotations); the client executes nothing.
+ */
+sealed interface ServerTool {
+    /** Web search. [engine] defaults to "auto" (falls back to Exa); never send "native" by default. */
+    data class WebSearch(val maxResults: Int? = null, val engine: String = "auto") : ServerTool
+    data object WebFetch : ServerTool
+    data object Datetime : ServerTool
+    data class ImageGeneration(
+        val model: String? = null,
+        val size: String? = null,
+        val quality: String? = null,
+    ) : ServerTool
+}
+
+/**
+ * The server tools clanker enables "always-on for capable models": all four iff the model supports
+ * tool calling, else none. Pure so it is unit-testable without the Android/UI layer.
+ */
+fun defaultServerTools(capabilities: Set<Capability>): List<ServerTool> =
+    if (Capability.ToolCalling in capabilities) {
+        listOf(
+            ServerTool.WebSearch(),
+            ServerTool.WebFetch,
+            ServerTool.Datetime,
+            ServerTool.ImageGeneration(),
+        )
+    } else {
+        emptyList()
+    }
 
 data class ChatResponse(
     val message: ChatMessage.Assistant,
