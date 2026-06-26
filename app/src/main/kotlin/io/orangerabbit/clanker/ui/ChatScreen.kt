@@ -12,8 +12,6 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,7 +29,6 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -262,7 +259,6 @@ fun ChatScreen(
     zoomed?.let { ZoomableImageDialog(it) { zoomed = null } }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MessageBubble(message: ChatMessage, onImageTap: (ImageBitmap) -> Unit) {
     val accent = when (message) {
@@ -319,25 +315,35 @@ private fun MessageBubble(message: ChatMessage, onImageTap: (ImageBitmap) -> Uni
             }
             if (citations.isNotEmpty()) {
                 val uriHandler = LocalUriHandler.current
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(top = 8.dp),
-                ) {
-                    citations.distinctBy { it.url }.forEachIndexed { i, c ->
-                        AssistChip(
-                            onClick = { runCatching { uriHandler.openUri(c.url) } },
-                            label = {
-                                Text(
-                                    text = c.title?.takeIf { it.isNotBlank() } ?: hostOf(c.url),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
-                                )
-                            },
-                            leadingIcon = {
-                                Text("${i + 1}", style = MaterialTheme.typography.labelSmall)
-                            },
-                        )
+                val unique = citations.distinctBy { it.url }
+                // Collapsed by default so a long source list doesn't dominate the chat. One tappable
+                // summary line expands to the numbered links.
+                var sourcesExpanded by remember(message.id) { mutableStateOf(false) }
+                Text(
+                    text = "// ${unique.size} SOURCE${if (unique.size == 1) "" else "S"} ${if (sourcesExpanded) "▾" else "▸"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    letterSpacing = 0.sp,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .clickable { sourcesExpanded = !sourcesExpanded },
+                )
+                if (sourcesExpanded) {
+                    Column(
+                        modifier = Modifier.padding(top = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        unique.forEachIndexed { i, c ->
+                            Text(
+                                text = "${i + 1}. ${c.title?.takeIf { it.isNotBlank() } ?: hostOf(c.url)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 2,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { runCatching { uriHandler.openUri(c.url) } },
+                            )
+                        }
                     }
                 }
             }

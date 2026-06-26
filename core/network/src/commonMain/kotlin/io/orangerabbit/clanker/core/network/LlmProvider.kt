@@ -84,7 +84,9 @@ sealed interface ServerTool {
 fun defaultServerTools(capabilities: Set<Capability>?): List<ServerTool> =
     if (capabilities == null || Capability.ToolCalling in capabilities) {
         listOf(
-            ServerTool.WebSearch(),
+            // maxResults caps results-per-search (the main driver of citation volume/cost); the
+            // model still decides how many searches to run. Tune here.
+            ServerTool.WebSearch(maxResults = 5),
             ServerTool.WebFetch,
             ServerTool.Datetime,
         )
