@@ -211,10 +211,11 @@ class ChatViewModel(
                 ChatMessage.System(MessageId(newId()), composeSystemPrompt(current.agentsMd)),
             )
             val modelId = if (current.imageMode) current.defaultImageModel else current.defaultChatModel
-            val modelCaps = current.availableModels.find { it.id == modelId }?.capabilities ?: emptySet()
-            // Server tools are gated on ToolCalling. In image mode the `modalities` path owns image
-            // output; current image models don't advertise `tools`, so defaultServerTools resolves to
-            // empty there and the two image mechanisms never overlap. Revisit if that ceases to hold.
+            // Null when the catalogue hasn't been fetched (fresh send before TEST CONNECTION / model
+            // dropdown) — defaultServerTools treats unknown capability as "enable", so web search
+            // isn't silently dropped. In image mode the `modalities` path owns image output; current
+            // image models don't advertise `tools`, so the two image mechanisms don't overlap.
+            val modelCaps = current.availableModels.find { it.id == modelId }?.capabilities
             val request = ChatRequest(
                 model = modelId,
                 messages = systemMessages + history,

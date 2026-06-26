@@ -206,6 +206,9 @@ class OpenAiCompatibleProviderTest {
         assertTrue(capable.any { it is ServerTool.ImageGeneration })
 
         assertEquals(emptyList(), defaultServerTools(setOf(Capability.Streaming)))
+
+        // Unknown capability (catalogue not loaded yet) → enable optimistically, not suppress.
+        assertEquals(4, defaultServerTools(null).size)
     }
 
     @Test
