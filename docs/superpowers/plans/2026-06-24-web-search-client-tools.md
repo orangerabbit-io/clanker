@@ -1,5 +1,7 @@
 # Web Search & Fetch via Client-Executed Tools — Implementation Plan
 
+> **Status: Superseded by `docs/superpowers/specs/2026-06-26-openrouter-server-tools-design.md`.** Web search/fetch now ship via OpenRouter server tools; this client-executed plan is shelved (not deleted) for a future SSH/MCP client loop.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give clanker its first tool use — the model can search the web and read pages via two client-executed Exa-backed tools, driven by a thin-but-real agent loop, answering with citations.

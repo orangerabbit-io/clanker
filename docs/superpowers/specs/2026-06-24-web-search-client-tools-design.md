@@ -1,7 +1,7 @@
 # Web search & fetch via client-executed tools — design
 
 **Date:** 2026-06-24
-**Status:** Approved (ready for implementation planning)
+**Status:** Superseded by `2026-06-26-openrouter-server-tools-design.md` — clanker is OpenRouter-only, so web search/fetch now ship via OpenRouter `ProviderExecuted` server tools. This client-executed `AgentLoop`/`ExaClient` design is preserved for whenever SSH/MCP revive the client loop.
 **Related:** `DESIGN.md` §6 (agent loop), §8 (tool system), §11 (chat UX). This spec builds the first concrete slice of both §6 and §8.
 
 ## 1. Goal
