@@ -60,6 +60,8 @@ class OpenAiSseDecoder(
                     argsFragment = tc.function.arguments,
                 )
             }
+            events += choice.delta.annotations.toCitationEvents()
+            choice.message?.annotations?.let { events += it.toCitationEvents() }
         }
         chunk.usage?.let { events += ChatEvent.UsageReport(it.toUsage()) }
         choice?.finishReason?.let { events += ChatEvent.Finished(it.toFinishReason()) }
@@ -70,6 +72,22 @@ class OpenAiSseDecoder(
         const val DONE = "[DONE]"
     }
 }
+
+private fun List<AnnotationDto>.toCitationEvents(): List<ChatEvent> =
+    mapNotNull { ann ->
+        if (ann.type != "url_citation") return@mapNotNull null
+        ann.urlCitation?.takeIf { it.url.isNotEmpty() }?.let { c ->
+            ChatEvent.CitationDelta(
+                io.orangerabbit.clanker.core.model.Citation(
+                    url = c.url,
+                    title = c.title,
+                    content = c.content,
+                    startIndex = c.startIndex,
+                    endIndex = c.endIndex,
+                ),
+            )
+        }
+    }
 
 private fun String.toFinishReason(): FinishReason = when (this) {
     "stop" -> FinishReason.Stop
@@ -84,6 +102,7 @@ private fun UsageDto.toUsage() = Usage(
     completionTokens = completionTokens,
     totalTokens = totalTokens,
     costUsd = cost,
+    webSearchRequests = serverToolUse?.webSearchRequests,
 )
 
 private fun ErrorDto.toApiError(): ApiError {
@@ -110,7 +129,14 @@ private data class StreamChunk(
 private data class Choice(
     val index: Int = 0,
     val delta: Delta = Delta(),
+    /** Defensive: annotations sometimes ride a final non-delta `message` object (spec §5/§10). */
+    val message: MessageDto? = null,
     @SerialName("finish_reason") val finishReason: String? = null,
+)
+
+@Serializable
+private data class MessageDto(
+    val annotations: List<AnnotationDto> = emptyList(),
 )
 
 @Serializable
@@ -120,6 +146,22 @@ private data class Delta(
     @SerialName("tool_calls") val toolCalls: List<ToolCallDto> = emptyList(),
     /** Generated images (image-output models). Each carries a `data:` URL in [ImageDto.imageUrl]. */
     val images: List<ImageDto> = emptyList(),
+    val annotations: List<AnnotationDto> = emptyList(),
+)
+
+@Serializable
+private data class AnnotationDto(
+    val type: String? = null,
+    @SerialName("url_citation") val urlCitation: UrlCitationDto? = null,
+)
+
+@Serializable
+private data class UrlCitationDto(
+    val url: String = "",
+    val title: String? = null,
+    val content: String? = null,
+    @SerialName("start_index") val startIndex: Int? = null,
+    @SerialName("end_index") val endIndex: Int? = null,
 )
 
 @Serializable
@@ -151,6 +193,12 @@ private data class UsageDto(
     @SerialName("completion_tokens") val completionTokens: Int = 0,
     @SerialName("total_tokens") val totalTokens: Int = 0,
     val cost: Double? = null,
+    @SerialName("server_tool_use") val serverToolUse: ServerToolUseDto? = null,
+)
+
+@Serializable
+private data class ServerToolUseDto(
+    @SerialName("web_search_requests") val webSearchRequests: Int? = null,
 )
 
 @Serializable

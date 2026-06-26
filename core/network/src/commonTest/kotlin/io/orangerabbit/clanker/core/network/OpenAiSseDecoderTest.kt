@@ -131,6 +131,77 @@ class OpenAiSseDecoderTest {
     }
 
     @Test
+    fun urlCitationAnnotationInDeltaBecomesCitationDelta() {
+        val payload = """
+            {"choices":[{"index":0,"delta":{"annotations":[
+            {"type":"url_citation","url_citation":{"url":"https://example.com/a","title":"A",
+            "content":"snippet","start_index":0,"end_index":5}}]},"finish_reason":null}]}
+        """.trimIndent().replace("\n", "")
+        val events = decoder.decode(payload)
+        assertEquals(1, events.size)
+        val ev = events.single()
+        assertTrue(ev is ChatEvent.CitationDelta)
+        assertEquals("https://example.com/a", ev.citation.url)
+        assertEquals("A", ev.citation.title)
+        assertEquals("snippet", ev.citation.content)
+        assertEquals(0, ev.citation.startIndex)
+        assertEquals(5, ev.citation.endIndex)
+    }
+
+    @Test
+    fun contentAndCitationInSameDeltaEmitTextThenCitation() {
+        val payload = """
+            {"choices":[{"index":0,"delta":{"content":"see","annotations":[
+            {"type":"url_citation","url_citation":{"url":"https://example.com/b"}}]},"finish_reason":null}]}
+        """.trimIndent().replace("\n", "")
+        val events = decoder.decode(payload)
+        assertEquals(
+            listOf(
+                ChatEvent.TextDelta("see"),
+                ChatEvent.CitationDelta(io.orangerabbit.clanker.core.model.Citation(url = "https://example.com/b")),
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun nonCitationAnnotationIsIgnored() {
+        val payload = """
+            {"choices":[{"index":0,"delta":{"annotations":[{"type":"file_citation"}]},"finish_reason":null}]}
+        """.trimIndent().replace("\n", "")
+        assertEquals(emptyList(), decoder.decode(payload))
+    }
+
+    @Test
+    fun urlCitationOnFinalMessageObjectBecomesCitationDelta() {
+        // Defensive: some responses carry annotations on a non-delta `message` object (spec §5/§10).
+        val payload = """
+            {"choices":[{"index":0,"delta":{},"message":{"annotations":[
+            {"type":"url_citation","url_citation":{"url":"https://example.com/c"}}]},"finish_reason":"stop"}]}
+        """.trimIndent().replace("\n", "")
+        val events = decoder.decode(payload)
+        assertEquals(
+            listOf(
+                ChatEvent.CitationDelta(io.orangerabbit.clanker.core.model.Citation(url = "https://example.com/c")),
+                ChatEvent.Finished(FinishReason.Stop),
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun serverToolUseIsParsedIntoUsage() {
+        val payload = """
+            {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,
+            "cost":0.001,"server_tool_use":{"web_search_requests":2}}}
+        """.trimIndent().replace("\n", "")
+        val events = decoder.decode(payload)
+        val report = events.single()
+        assertTrue(report is ChatEvent.UsageReport)
+        assertEquals(2, report.usage.webSearchRequests)
+    }
+
+    @Test
     fun malformedJsonBecomesFailedEvent() {
         val events = decoder.decode("{not valid json")
         assertEquals(1, events.size)
