@@ -69,12 +69,17 @@ sealed interface ServerTool {
 }
 
 /**
- * The server tools clanker enables "always-on for capable models". Returns all four unless the
- * model is KNOWN to lack tool calling. [capabilities] is null when the model catalogue hasn't been
- * fetched yet (the common case on a fresh send): we default to enabling the tools, since OpenRouter
- * runs web tools broadly with `engine=auto` and degrades gracefully — suppressing them on unknown
- * capability would silently break web search whenever the catalogue isn't loaded. Pure so it is
- * unit-testable without the Android/UI layer.
+ * The server tools clanker enables "always-on for capable models": web search, fetch, and datetime.
+ * Returned unless the model is KNOWN to lack tool calling. [capabilities] is null when the model
+ * catalogue hasn't been fetched yet (the common case on a fresh send): we default to enabling the
+ * tools, since OpenRouter runs web tools broadly with `engine=auto` and degrades gracefully —
+ * suppressing them on unknown capability would silently break web search whenever the catalogue
+ * isn't loaded.
+ *
+ * [ServerTool.ImageGeneration] is deliberately NOT in the always-on set: invoked inline against an
+ * arbitrary chat model it fails ("Server tool request failed", verified on deepseek-v4-flash).
+ * Image generation runs through the dedicated image mode instead (modalities + the settings image
+ * model). The type remains available for explicit use. Pure so it is unit-testable without the UI.
  */
 fun defaultServerTools(capabilities: Set<Capability>?): List<ServerTool> =
     if (capabilities == null || Capability.ToolCalling in capabilities) {
@@ -82,7 +87,6 @@ fun defaultServerTools(capabilities: Set<Capability>?): List<ServerTool> =
             ServerTool.WebSearch(),
             ServerTool.WebFetch,
             ServerTool.Datetime,
-            ServerTool.ImageGeneration(),
         )
     } else {
         emptyList()

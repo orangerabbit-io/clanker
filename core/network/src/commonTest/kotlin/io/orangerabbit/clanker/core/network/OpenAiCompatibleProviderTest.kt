@@ -199,16 +199,17 @@ class OpenAiCompatibleProviderTest {
     @Test
     fun defaultServerToolsEnabledOnlyForToolCapableModels() {
         val capable = defaultServerTools(setOf(Capability.Streaming, Capability.ToolCalling))
-        assertEquals(4, capable.size)
+        assertEquals(3, capable.size)
         assertTrue(capable.any { it is ServerTool.WebSearch })
         assertTrue(capable.contains(ServerTool.WebFetch))
         assertTrue(capable.contains(ServerTool.Datetime))
-        assertTrue(capable.any { it is ServerTool.ImageGeneration })
+        // ImageGeneration is intentionally excluded from the always-on set (fails inline on chat models).
+        assertTrue(capable.none { it is ServerTool.ImageGeneration })
 
         assertEquals(emptyList(), defaultServerTools(setOf(Capability.Streaming)))
 
         // Unknown capability (catalogue not loaded yet) → enable optimistically, not suppress.
-        assertEquals(4, defaultServerTools(null).size)
+        assertEquals(3, defaultServerTools(null).size)
     }
 
     @Test

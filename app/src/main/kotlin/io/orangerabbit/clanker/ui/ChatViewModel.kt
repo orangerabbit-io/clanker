@@ -213,8 +213,8 @@ class ChatViewModel(
             val modelId = if (current.imageMode) current.defaultImageModel else current.defaultChatModel
             // Null when the catalogue hasn't been fetched (fresh send before TEST CONNECTION / model
             // dropdown) — defaultServerTools treats unknown capability as "enable", so web search
-            // isn't silently dropped. In image mode the `modalities` path owns image output; current
-            // image models don't advertise `tools`, so the two image mechanisms don't overlap.
+            // isn't silently dropped. Image generation is not in that set; image mode owns it via the
+            // modalities path + the settings image model.
             val modelCaps = current.availableModels.find { it.id == modelId }?.capabilities
             val request = ChatRequest(
                 model = modelId,
