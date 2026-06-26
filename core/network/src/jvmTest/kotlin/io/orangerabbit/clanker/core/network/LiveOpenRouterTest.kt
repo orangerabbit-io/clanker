@@ -40,4 +40,33 @@ class LiveOpenRouterTest {
         assertTrue(events.any { it is ChatEvent.Finished }, "stream never finished")
         assertTrue(text.isNotBlank(), "no text was streamed")
     }
+
+    @Test
+    fun liveWebSearchReturnsCitations() {
+        val key = System.getenv("OPENROUTER_API_KEY")
+        if (key.isNullOrBlank()) {
+            println("OPENROUTER_API_KEY not set — skipping live web search test")
+            return
+        }
+
+        val provider = openRouterProvider(apiKey = key, engine = CIO.create())
+        val request = ChatRequest(
+            model = "openai/gpt-4o-mini",
+            messages = listOf(
+                ChatMessage.User(MessageId("1"), "Search the web: what is the latest stable Kotlin version? Cite a source."),
+            ),
+            serverTools = listOf(ServerTool.WebSearch()),
+        )
+
+        val events = runBlocking { provider.streamChat(request).toList() }
+
+        val text = events.filterIsInstance<ChatEvent.TextDelta>().joinToString("") { it.text }
+        val citations = events.filterIsInstance<ChatEvent.CitationDelta>().map { it.citation }
+        val usage = events.filterIsInstance<ChatEvent.UsageReport>().lastOrNull()?.usage
+        val failures = events.filterIsInstance<ChatEvent.Failed>()
+        println("LIVE web_search: text='${text.take(120)}' citations=${citations.size} usage=$usage failures=${failures.map { it.error }}")
+
+        assertTrue(failures.isEmpty(), "provider returned errors: ${failures.map { it.error }}")
+        assertTrue(citations.isNotEmpty(), "expected at least one url_citation; got none")
+    }
 }
