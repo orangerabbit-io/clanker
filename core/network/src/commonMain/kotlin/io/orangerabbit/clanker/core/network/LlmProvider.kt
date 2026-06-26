@@ -106,6 +106,8 @@ data class Usage(
     val completionTokens: Int,
     val totalTokens: Int,
     val costUsd: Double? = null,
+    /** Server-tool web search calls OpenRouter executed this turn (from `server_tool_use`). */
+    val webSearchRequests: Int? = null,
 )
 
 /** Thrown by non-streaming calls (e.g. [LlmProvider.listModels]) when the API returns an error. */
@@ -136,6 +138,9 @@ sealed interface ChatEvent {
         val name: String?,
         val argsFragment: String?,
     ) : ChatEvent
+
+    /** A web source cited by a server-executed web tool. May arrive multiple times per turn. */
+    data class CitationDelta(val citation: io.orangerabbit.clanker.core.model.Citation) : ChatEvent
 
     data class UsageReport(val usage: Usage) : ChatEvent
     data class Finished(val reason: FinishReason) : ChatEvent
