@@ -27,7 +27,7 @@ data class Settings(
     val agentsMd: String = "",
 ) {
     companion object {
-        const val DEFAULT_CHAT_MODEL = "openai/gpt-4o-mini"
+        const val DEFAULT_CHAT_MODEL = "deepseek/deepseek-v4-flash"
         const val DEFAULT_IMAGE_MODEL = "google/gemini-2.5-flash-image"
     }
 }
