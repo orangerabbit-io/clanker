@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import dev.zacsweers.metro.Inject
 import io.ktor.client.engine.HttpClientEngine
 import io.orangerabbit.clanker.core.model.ChatMessage
+import io.orangerabbit.clanker.core.model.Citation
 import io.orangerabbit.clanker.core.model.MessageId
 import io.orangerabbit.clanker.core.model.MsgLifecycle
 import io.orangerabbit.clanker.core.network.ChatEvent
 import io.orangerabbit.clanker.core.network.ChatRequest
 import io.orangerabbit.clanker.core.agent.composeSystemPrompt
 import io.orangerabbit.clanker.core.network.ModelInfo
+import io.orangerabbit.clanker.core.network.defaultServerTools
 import io.orangerabbit.clanker.core.network.openRouterProvider
 import io.orangerabbit.clanker.data.SecretStore
 import io.orangerabbit.clanker.data.Settings
@@ -208,13 +210,17 @@ class ChatViewModel(
             val systemMessages = listOf(
                 ChatMessage.System(MessageId(newId()), composeSystemPrompt(current.agentsMd)),
             )
+            val modelId = if (current.imageMode) current.defaultImageModel else current.defaultChatModel
+            val modelCaps = current.availableModels.find { it.id == modelId }?.capabilities ?: emptySet()
             val request = ChatRequest(
-                model = if (current.imageMode) current.defaultImageModel else current.defaultChatModel,
+                model = modelId,
                 messages = systemMessages + history,
+                serverTools = defaultServerTools(modelCaps),
                 modalities = if (current.imageMode) listOf("image", "text") else emptyList(),
             )
             val buffer = StringBuilder()
             val images = mutableListOf<String>()
+            val citations = mutableListOf<Citation>()
             var lastUiUpdate = 0L
             try {
                 provider.streamChat(request).collect { event ->
@@ -226,12 +232,19 @@ class ChatViewModel(
                             val now = System.currentTimeMillis()
                             if (now - lastUiUpdate >= UI_THROTTLE_MS) {
                                 lastUiUpdate = now
-                                updateAssistant(assistantId, buffer.toString(), images, MsgLifecycle.Streaming)
+                                updateAssistant(assistantId, buffer.toString(), images, citations, MsgLifecycle.Streaming)
                             }
                         }
                         is ChatEvent.ImageDelta -> {
                             images += event.dataUrl
-                            updateAssistant(assistantId, buffer.toString(), images, MsgLifecycle.Streaming)
+                            updateAssistant(assistantId, buffer.toString(), images, citations, MsgLifecycle.Streaming)
+                        }
+                        is ChatEvent.CitationDelta -> {
+                            val c = event.citation
+                            if (citations.none { it.url == c.url && it.startIndex == c.startIndex }) {
+                                citations += c
+                                updateAssistant(assistantId, buffer.toString(), images, citations, MsgLifecycle.Streaming)
+                            }
                         }
                         is ChatEvent.UsageReport ->
                             event.usage.costUsd?.let { c ->
@@ -239,21 +252,21 @@ class ChatViewModel(
                                 settingsStore.addLifetimeCost(c) // persisted lifetime total
                             }
                         is ChatEvent.Finished ->
-                            updateAssistant(assistantId, buffer.toString(), images, MsgLifecycle.Complete)
+                            updateAssistant(assistantId, buffer.toString(), images, citations, MsgLifecycle.Complete)
                         is ChatEvent.Failed -> {
                             _state.update { it.copy(error = event.error.message) }
-                            updateAssistant(assistantId, buffer.toString(), images, MsgLifecycle.Failed)
+                            updateAssistant(assistantId, buffer.toString(), images, citations, MsgLifecycle.Failed)
                         }
                         else -> Unit // reasoning / tool-call deltas: not surfaced in MVP UI yet
                     }
                 }
             } catch (e: CancellationException) {
                 // User pressed Stop: keep whatever streamed, mark it aborted, and respect cancellation.
-                updateAssistant(assistantId, buffer.toString(), images, MsgLifecycle.Aborted)
+                updateAssistant(assistantId, buffer.toString(), images, citations, MsgLifecycle.Aborted)
                 throw e
             } catch (e: Throwable) {
                 _state.update { it.copy(error = e.message ?: "Unknown error") }
-                updateAssistant(assistantId, buffer.toString(), images, MsgLifecycle.Failed)
+                updateAssistant(assistantId, buffer.toString(), images, citations, MsgLifecycle.Failed)
             } finally {
                 _state.update { it.copy(streaming = false) }
             }
@@ -270,13 +283,19 @@ class ChatViewModel(
         id: MessageId,
         content: String,
         images: List<String>,
+        citations: List<Citation>,
         lifecycle: MsgLifecycle,
     ) {
         _state.update { state ->
             state.copy(
                 messages = state.messages.map { msg ->
                     if (msg is ChatMessage.Assistant && msg.id == id) {
-                        msg.copy(content = content, imageUrls = images.toList(), lifecycle = lifecycle)
+                        msg.copy(
+                            content = content,
+                            imageUrls = images.toList(),
+                            citations = citations.toList(),
+                            lifecycle = lifecycle,
+                        )
                     } else {
                         msg
                     }
