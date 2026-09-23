@@ -28,6 +28,7 @@ Everything expensive executes server-side at OpenRouter. The client's job is: st
 | **Bounded everything.** | Every loop, context window, and spend has an explicit ceiling. Spend caps are a first-class UI, not a hidden constant. |
 | **Execution backend is a property of a tool.** | `Tool.backend ∈ {openrouter, device, hosted}`. `hosted` is reserved for future clanker-operated services (revenue expansion) — designed in from day one, not implemented until later. |
 | **The device and the model are hostile.** | Prompt injection is structural. Server-side limits (spend caps, tool budgets, guardrails) are primary; client controls are defense-in-depth. |
+| **Boring UI on purpose.** | The interface is a clean, conventional chat client: familiar navigation, plain Material 3, zero novelty theming or effects. Prior clanker experiments (cyberpunk skins, CRT effects) are explicitly rejected. Creative energy goes into capability, not chrome. |
 
 ## 2. Business model
 
@@ -184,3 +185,4 @@ Reselling/markup of inference, sync backend, push notifications, web client, vid
 - New repo: `~/projects/orangerabbit-io/clanker/` (this one).
 - Trunk-based, PR-gated per global workflow; semantic-release from Phase 1 CI.
 - clanker v1 repo remains untouched as reference.
+- Execution method: implementation runs via **subagent-driven development** (sequential implementer subagents per task within one worktree/branch per phase; parallelism only across independent phases/workstreams), per the global workflow.
