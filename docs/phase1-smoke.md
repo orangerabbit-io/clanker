@@ -19,9 +19,11 @@ its own conventional commit.
     (`nix develop -c ./gradlew :composeApp:assembleDebug`, then
     `adb install composeApp/build/outputs/apk/debug/app-debug.apk`) because
     release builds are not `run-as`-inspectable.
-- **OpenRouter account with credits**, and an API key available for the
-  documented paste-code fallback (or complete the PKCE `clanker://oauth`
-  connect flow).
+- **OpenRouter account with credits**, and access to the OpenRouter
+  authorization screen (headless mode prints an authorization code) so the
+  app can exchange a PKCE authorization code for a key. Note: the paste
+  fallback accepts the **authorization code**, not a raw API key (or
+  complete the `clanker://oauth` deep-link flow instead).
 - **iOS pass (optional second pass)**: macOS machine with Xcode and the
   simulator/device; same checklist items, results recorded in the same table.
   Note for item 2 on iOS: secrets live in the OS Keychain, which cannot be
@@ -32,8 +34,9 @@ its own conventional commit.
 
 ### 1. Paste-code connect: key stored encrypted, survives restart
 
-1. Launch the app → Settings/Connect → choose the documented paste-code
-   fallback → paste the OpenRouter key → connect.
+1. Launch the app → Settings → Connect → choose the documented paste-code
+   fallback → paste the PKCE **authorization code** displayed by OpenRouter
+   (headless mode) — the app exchanges it for a key → connect.
 2. Confirm the app reports connected.
 3. Force-stop and relaunch:
    `adb shell am force-stop io.orangerabbit.clanker` then relaunch from the
@@ -59,9 +62,13 @@ Concrete procedure (Android, debug build):
      sh -c 'echo not-ciphertext > files/secrets/b3BlbnJvdXRlcl9rZXk'
    ```
 3. Force-stop and relaunch the app.
-4. Verify fail-closed behavior:
-   - The app surfaces a decryption/storage error instead of silently showing
-     "connected"; chat cannot send with a bad key.
+4. Verify fail-closed behavior — there are two observation points:
+   - On relaunch, the app shows **disconnected with no error** (the Connect
+     screen's restore swallows the decryption exception and stays
+     disconnected — ConnectFlow.kt fail-closed catch).
+   - When the operator then opens a chat and sends, the decryption error
+     surfaces in the chat error banner; no message can be sent with a bad
+     key.
    - No plaintext key is readable in app files:
      ```bash
      adb shell run-as io.orangerabbit.clanker sh -c 'grep -r sk-or files/'
@@ -75,7 +82,8 @@ files; app recovers after reconnect.
 
 ### 3. Web search: sources row, request count, cost
 
-1. New chat. Ensure the WEB_SEARCH tool is enabled in Settings.
+1. New chat. Open the expandable Tools panel (wrench icon in the chat top
+   bar) and ensure the WEB_SEARCH tool is enabled.
 2. Ask something requiring current information
    (e.g. "What is today's date and one headline from this week?").
 3. Watch the answer area and the usage/cost row.
@@ -94,7 +102,8 @@ after connectivity returns, the next send works normally.
 
 ### 5. Per-request spend cap
 
-1. In Settings → spend caps, set the per-request cap to `0.01` USD.
+1. Open the chat screen's expandable Tools panel (wrench icon in the chat
+   top bar) and set the per-request cap to `0.01` USD.
 2. Send a request large enough to exceed it (long answer, or one that
    triggers server tools).
 
