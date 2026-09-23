@@ -15,4 +15,8 @@ class InMemorySecretStore : SecretStore {
         data[id] = value
         return value
     }
+
+    override suspend fun put(id: String, value: String) {
+        data[id] = value
+    }
 }

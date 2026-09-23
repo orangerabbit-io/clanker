@@ -95,6 +95,27 @@ class OAuthTest {
         assertTrue(body.contains("S256"), "body must contain code_challenge_method=S256")
         assertEquals("sk-or-v1-test-abc123", key, "must return the key field from JSON response")
     }
+
+    // ── authUrl() ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun authUrlIncludesCallbackWhenProvided() {
+        val url = authUrl(callback = "clanker://oauth", challenge = "ch", label = "clanker")
+        assertTrue(url.contains("callback_url="), "callback_url param must be present")
+        assertTrue(url.contains("code_challenge=ch"), "code_challenge must be present")
+        assertTrue(url.contains("code_challenge_method=S256"), "method must be S256")
+    }
+
+    @Test
+    fun authUrlOmitsCallbackWhenBlank() {
+        val url = authUrl(callback = "", challenge = "ch")
+        assertTrue(
+            !url.contains("callback_url"),
+            "callback_url must be absent in headless/paste mode; got: $url",
+        )
+        assertTrue(url.contains("code_challenge=ch"), "code_challenge must still be present")
+        assertTrue(url.contains("code_challenge_method=S256"), "method must still be S256")
+    }
 }
 
 private fun assertNotNull(value: Any?, message: String) {

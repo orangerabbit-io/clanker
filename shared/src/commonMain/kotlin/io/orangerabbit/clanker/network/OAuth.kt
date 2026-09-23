@@ -18,13 +18,30 @@ private const val VERIFIER_CHARS =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
 private const val VERIFIER_LENGTH = 64
 
+// VERIFIER_CHARS has 66 entries.  Rejection-sampling bound: 66 * (256/66) = 198.
+// Accept a byte only if it is < 198; then byte % 66 gives a perfectly uniform index.
+// Accept rate ≈ 198/256 ≈ 77%; two buffers of VERIFIER_LENGTH*2 bytes are virtually
+// guaranteed to contain ≥ VERIFIER_LENGTH accepted bytes on the first attempt.
+private val VERIFIER_CHARS_LEN = VERIFIER_CHARS.length          // 66
+private val VERIFIER_ACCEPT_BOUND = VERIFIER_CHARS_LEN * (256 / VERIFIER_CHARS_LEN) // 198
+
 /**
- * Generates a fresh RFC 7636 PKCE pair.  Each call produces a distinct pair.
- * Verifier is 64 characters from the unreserved set `[A-Za-z0-9\-._~]`.
+ * Generates a fresh RFC 7636 PKCE pair using a CSPRNG.  Each call produces a distinct pair.
+ * Verifier is 64 characters from the unreserved set `[A-Za-z0-9\-._~]`, drawn with
+ * rejection sampling so that every character is chosen with equal probability.
  */
 fun pkcePair(): PkcePair {
     val verifier = buildString(VERIFIER_LENGTH) {
-        repeat(VERIFIER_LENGTH) { append(VERIFIER_CHARS.random()) }
+        while (length < VERIFIER_LENGTH) {
+            // Oversample to minimise system-call overhead while guaranteeing enough
+            // accepted bytes in virtually every iteration.
+            val raw = secureRandomBytes((VERIFIER_LENGTH - length + 1) * 2)
+            for (b in raw) {
+                if (length >= VERIFIER_LENGTH) break
+                val v = b.toInt() and 0xFF
+                if (v < VERIFIER_ACCEPT_BOUND) append(VERIFIER_CHARS[v % VERIFIER_CHARS_LEN])
+            }
+        }
     }
     return PkcePair(verifier = verifier, challenge = sha256B64Url(verifier))
 }
@@ -40,9 +57,15 @@ fun pkcePair(): PkcePair {
  */
 fun authUrl(callback: String, challenge: String, label: String = "clanker"): String = buildString {
     append("https://openrouter.ai/auth")
-    append("?callback_url=")
-    append(callback.encodeURLParameter())
-    append("&code_challenge=")
+    if (callback.isNotBlank()) {
+        append("?callback_url=")
+        append(callback.encodeURLParameter())
+        append("&code_challenge=")
+    } else {
+        // Headless / paste mode: omit callback_url entirely so OpenRouter displays the
+        // code on-screen rather than attempting a redirect.
+        append("?code_challenge=")
+    }
     append(challenge)
     append("&code_challenge_method=S256")
     append("&key_label=")

@@ -13,4 +13,7 @@ actual class PlatformSecretStore actual constructor(@Suppress("UNUSED_PARAMETER"
 
     override suspend fun getOrPut(id: String, generator: suspend () -> String): String =
         throw IllegalStateException("no secure storage on jvm")
+
+    override suspend fun put(id: String, value: String): Unit =
+        throw IllegalStateException("no secure storage on jvm")
 }

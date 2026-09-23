@@ -20,6 +20,9 @@ class SecretStoreBehaviorTest {
             @Suppress("UNREACHABLE_CODE")
             return generator()
         }
+
+        override suspend fun put(id: String, value: String): Unit =
+            throw IllegalStateException("platform storage failure")
     }
 
     @Test
@@ -46,5 +49,29 @@ class SecretStoreBehaviorTest {
         assertEquals("sk-test-1234", first)
         assertEquals("sk-test-1234", second)
         assertEquals(1, callCount, "generator must be invoked only once, not on cache-hit")
+    }
+
+    @Test
+    fun putOnAbsentIdStores() = runBlocking {
+        val store = InMemorySecretStore()
+        store.put("openrouter_key", "sk-or-v1-fresh")
+        assertEquals("sk-or-v1-fresh", store.get("openrouter_key"),
+            "put on absent id must store the value")
+    }
+
+    @Test
+    fun putAfterGetOrPutReplacesValue() = runBlocking {
+        val store = InMemorySecretStore()
+        store.getOrPut("openrouter_key") { "sk-or-v1-old" }
+        store.put("openrouter_key", "sk-or-v1-new")
+        assertEquals("sk-or-v1-new", store.get("openrouter_key"),
+            "put after getOrPut must overwrite the stale value")
+    }
+
+    @Test
+    fun throwingStorePutRethrows(): Unit = runBlocking {
+        assertFailsWith<IllegalStateException>("put storage failure must propagate") {
+            ThrowingStore().put("key", "value")
+        }
     }
 }

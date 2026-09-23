@@ -77,6 +77,11 @@ actual class PlatformSecretStore actual constructor(@Suppress("UNUSED_PARAMETER"
         return value
     }
 
+    override suspend fun put(id: String, value: String) {
+        // save() already handles both SecItemAdd (new) and SecItemUpdate (existing).
+        save(id, value)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun save(id: String, value: String) {
         val data = (NSString.create(string = value) as NSString).dataUsingEncoding(NSUTF8StringEncoding)

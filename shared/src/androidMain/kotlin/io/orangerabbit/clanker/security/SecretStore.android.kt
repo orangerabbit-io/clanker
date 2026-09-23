@@ -45,12 +45,21 @@ actual class PlatformSecretStore actual constructor(context: Any) : SecretStore 
     override suspend fun getOrPut(id: String, generator: suspend () -> String): String {
         get(id)?.let { return it }
         val value = generator() // exceptions from generator or storage propagate — never fall back
+        encrypt(id, value)
+        return value
+    }
+
+    override suspend fun put(id: String, value: String) {
+        // Overwrites any existing ciphertext file unconditionally — used for re-connect.
+        encrypt(id, value)
+    }
+
+    private fun encrypt(id: String, value: String) {
         val ciphertext = Base64.encodeToString(
             aead.encrypt(value.encodeToByteArray(), id.encodeToByteArray()),
             Base64.NO_WRAP,
         )
         File(secretsDir, id.toFileComponent()).writeText(ciphertext)
-        return value
     }
 
     /** URL-safe Base64 encoding of [this] string so any secret id is a safe filename. */

@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,16 @@ fun ConnectFlow(
     var codeInput by remember(initialCode) { mutableStateOf(initialCode) }
     var connected by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Restore connected state from persisted key on first composition.
+    // Fail-closed: if the storage layer throws, remain disconnected.
+    LaunchedEffect(Unit) {
+        try {
+            connected = secretStore.get("openrouter_key") != null
+        } catch (_: Exception) {
+            // storage unavailable — stay disconnected
+        }
+    }
 
     Column(modifier = Modifier.padding(16.dp)) {
         Text(
@@ -118,10 +129,11 @@ fun ConnectFlow(
                                 verifier = pkce.verifier,
                                 httpClient = httpClient,
                             )
-                            // Fail-closed: if getOrPut throws (e.g. Keystore unavailable)
-                            // the exception propagates to the catch below and the screen
-                            // stays disconnected.
-                            secretStore.getOrPut("openrouter_key") { key }
+                            // put() overwrites any stale key so re-connect always stores
+                            // the fresh key.  Fail-closed: if put throws (e.g. Keystore
+                            // unavailable) the exception propagates and the screen stays
+                            // disconnected.
+                            secretStore.put("openrouter_key", key)
                             connected = true
                             errorMessage = null
                         } catch (e: Exception) {
