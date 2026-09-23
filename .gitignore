@@ -1,1 +1,25 @@
 .worktrees/
+
+# Gradle
+.gradle/
+build/
+**/build/
+local.properties
+
+# Android keystore — never commit
+*.jks
+*.keystore
+keystore.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Nix
+result
+.direnv/
+
+# OS
+.DS_Store

@@ -1,0 +1,53 @@
+[versions]
+# Version verification (Step 1 of task-1):
+# Kotlin:             brief pin 2.3.0  → bumped to 2.3.21 (patch; reference project uses same, no breaking changes)
+# CMP:                brief pin 1.9.0  → used as-is (cannot verify upstream from this host)
+# Ktor:               brief pin 3.5.0  → used as-is (reference project confirms 3.5.0)
+# SQLDelight:         brief pin 2.1.0  → used as-is (cannot verify upstream from this host)
+# Koin:               brief pin 4.1.0  → used as-is (cannot verify upstream from this host)
+# kotlinxSerialization: brief pin 1.9.0 → used as-is (cannot verify upstream from this host)
+# coroutines:         brief pin 1.10.2 → used as-is (reference project confirms 1.10.2)
+# AGP:                brief pin 9.1.0  → bumped to 9.1.1 (patch; reference project uses same, pairs with Gradle 9.3.1)
+# activityCompose:    brief pin 1.12.0 → used as-is (cannot verify upstream from this host)
+# markdownRenderer:   brief pin 0.39.0 → bumped to 0.39.2 (patch; reference project uses same, no breaking changes)
+#
+# Gradle wrapper: 9.3.1 (required by AGP 9.x)
+
+kotlin = "2.3.21"
+composeMultiplatform = "1.9.0"
+ktor = "3.5.0"
+sqldelight = "2.1.0"
+koin = "4.1.0"
+kotlinxSerialization = "1.9.0"
+coroutines = "1.10.2"
+agp = "9.1.1"
+activityCompose = "1.12.0"
+markdownRenderer = "0.39.2"
+
+[libraries]
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
+ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
+sqldelight-coroutines = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
+sqldelight-driver-jvm = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
+koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
+koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+# Markdown renderer: multiplatform-markdown-renderer-m3 + multiplatform-markdown-renderer-code
+# coordinate name verified against mikepenz GitHub (group com.mikepenz)
+markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
+markdown-renderer-code = { module = "com.mikepenz:multiplatform-markdown-renderer-code", version.ref = "markdownRenderer" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+
+[plugins]
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+androidLibrary = { id = "com.android.library", version.ref = "agp" }
+sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
