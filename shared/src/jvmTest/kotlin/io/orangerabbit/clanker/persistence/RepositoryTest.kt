@@ -2,7 +2,9 @@ package io.orangerabbit.clanker.persistence
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.orangerabbit.clanker.db.ClankerDb
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -56,12 +58,27 @@ class RepositoryTest {
         repo.createConversation("c1", "Alpha", "{}")
         repo.createConversation("c2", "Beta", "{}")
 
-        val list = repo.conversations().first()
-        assertEquals(2, list.size)
-        // selectAll orders by createdAt DESC; both inserted near-instantly so just check presence
-        val ids = list.map { it.id }.toSet()
-        assertTrue("c1" in ids)
-        assertTrue("c2" in ids)
+        val channel = Channel<List<Conversation>>(capacity = Channel.UNLIMITED)
+        val job = launch {
+            repo.conversations().collect { channel.send(it) }
+        }
+
+        // First emission: c1 and c2 already present
+        val first = channel.receive()
+        assertEquals(2, first.size)
+        val firstIds = first.map { it.id }.toSet()
+        assertTrue("c1" in firstIds)
+        assertTrue("c2" in firstIds)
+
+        // Insert c3 — flow must re-emit on query invalidation
+        repo.createConversation("c3", "Gamma", "{}")
+
+        // Second emission must include c3
+        val second = channel.receive()
+        assertEquals(3, second.size)
+        assertTrue("c3" in second.map { it.id })
+
+        job.cancel()
     }
 
     @Test
@@ -74,9 +91,13 @@ class RepositoryTest {
         repo1.appendMessage("c1", "user", "hello", null, null, null, "COMPLETE")
         repo1.appendMessage("c1", "assistant", "world", null, null, """{"id":"msg_1","content":"world"}""", "COMPLETE")
 
+        // Capture original IDs before export (generated internally by appendMessage)
+        val orig = repo1.messagesFor("c1")
+        val assistantId = orig.first { it.role == "assistant" }.id
+
         val exported = exportImport1.exportAll()
 
-        // Fresh in-memory database — no schema yet
+        // Fresh in-memory database — freshDb() creates the schema
         val (_, db2) = freshDb()
         val repo2 = ConversationRepository(db2)
         val exportImport2 = ExportImport(db2)
@@ -87,11 +108,10 @@ class RepositoryTest {
         val messages = repo2.messagesFor("c1")
         assertEquals(2, messages.size)
 
-        val assistantMsg = messages.last()
+        val assistantMsg = messages.first { it.id == assistantId }
         assertEquals("""{"id":"msg_1","content":"world"}""", assistantMsg.rawJson)
 
-        // Verify IDs are preserved (not regenerated)
-        val orig = repo1.messagesFor("c1")
+        // Verify all IDs are preserved (not regenerated)
         assertEquals(orig.map { it.id }, messages.map { it.id })
     }
 }
