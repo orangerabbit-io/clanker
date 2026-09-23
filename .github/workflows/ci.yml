@@ -27,6 +27,12 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew :composeApp:assembleDebug
 
+      - name: Locate APK (diagnostic)
+        run: |
+          find composeApp/build -name '*.apk' -o -name 'redirect.txt' | head -20
+          echo '--- redirect.txt contents:'
+          find composeApp/build -name 'redirect.txt' -exec cat {} \; | head -10
+
       - uses: actions/upload-artifact@v4
         with:
           name: clanker-debug-apk
