@@ -85,8 +85,11 @@ android {
         applicationId = "io.orangerabbit.clanker"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI (release.yml) passes the released tag's version in via these
+        // properties so the APK matches the GitHub release. Local dev falls
+        // back to these defaults.
+        versionCode = (project.findProperty("clankerVersionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("clankerVersionName") as String?) ?: "0.1.0"
     }
 
     buildFeatures {

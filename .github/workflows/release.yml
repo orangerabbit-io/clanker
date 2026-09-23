@@ -34,19 +34,27 @@ jobs:
       - name: Run JVM tests
         run: ./gradlew :shared:jvmTest
 
-      - name: Assemble release APK
-        run: ./gradlew :composeApp:assembleRelease
-        env:
-          CLANKER_KEYSTORE: /tmp/clanker-release.jks
-          CLANKER_KEYSTORE_PASSWORD: ${{ secrets.CLANKER_KEYSTORE_PASSWORD }}
-          CLANKER_KEY_ALIAS: ${{ secrets.CLANKER_KEY_ALIAS }}
-          CLANKER_KEY_PASSWORD: ${{ secrets.CLANKER_KEY_PASSWORD }}
-
       - name: semantic-release
         id: semrel
         uses: cycjimmy/semantic-release-action@v4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble release APK
+        if: steps.semrel.outputs.new_release_published == 'true'
+        # versionCode is the total commit count: strictly monotonic across
+        # releases (no force-push rewrites on main), and lets Android/Obtainium
+        # order updates. versionName comes from the released tag.
+        run: |
+          VERSION_CODE="$(git rev-list --count HEAD)"
+          ./gradlew :composeApp:assembleRelease \
+            -PclankerVersionName="${{ steps.semrel.outputs.new_release_version }}" \
+            -PclankerVersionCode="${VERSION_CODE}"
+        env:
+          CLANKER_KEYSTORE: /tmp/clanker-release.jks
+          CLANKER_KEYSTORE_PASSWORD: ${{ secrets.CLANKER_KEYSTORE_PASSWORD }}
+          CLANKER_KEY_ALIAS: ${{ secrets.CLANKER_KEY_ALIAS }}
+          CLANKER_KEY_PASSWORD: ${{ secrets.CLANKER_KEY_PASSWORD }}
 
       - name: Upload release APK
         if: steps.semrel.outputs.new_release_published == 'true'
