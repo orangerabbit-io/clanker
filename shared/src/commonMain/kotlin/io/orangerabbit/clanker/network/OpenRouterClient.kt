@@ -1,0 +1,147 @@
+package io.orangerabbit.clanker.network
+
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.request.headers
+import io.ktor.client.request.preparePost
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
+import io.ktor.http.isSuccess
+import io.orangerabbit.clanker.model.AssistantMessage
+import io.orangerabbit.clanker.model.ChatMessage
+import io.orangerabbit.clanker.model.SystemMessage
+import io.orangerabbit.clanker.model.ToolResultMessage
+import io.orangerabbit.clanker.model.UserMessage
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+/** OpenRouter app attribution headers (required by OpenRouter for app identification). */
+const val APP_REFERER: String = "https://github.com/orangerabbit-io/clanker"
+const val APP_TITLE: String = "clanker"
+
+/**
+ * Streaming OpenRouter chat-completions client.
+ *
+ * @param baseUrl override for tests/self-hosted gateways; MUST be HTTPS or the
+ *   constructor throws, so API keys are never sent over plaintext.
+ */
+class OpenRouterClient(
+    private val apiKeyProvider: suspend () -> String,
+    engine: HttpClientEngine? = null,
+    baseUrl: String = BASE_URL,
+) {
+    init {
+        if (!baseUrl.startsWith("https://")) {
+            throw IllegalArgumentException("baseUrl must be HTTPS-only; got: $baseUrl")
+        }
+    }
+
+    private val http = engine?.let { HttpClient(it) } ?: HttpClient()
+    private val endpoint = "$baseUrl/chat/completions"
+
+    /**
+     * Streams [req] to OpenRouter, delivering [StreamEvent]s to [onEvent] as
+     * they arrive. Returns the terminal [ChatResult]:
+     *  - [ChatResult.Completed] after the `[DONE]` sentinel (usage may be null).
+     *  - [ChatResult.Interrupted] when the transport fails mid-stream; content
+     *    already emitted via [onEvent] is never lost or re-emitted.
+     *  - [ChatResult.Failed] on non-2xx HTTP responses.
+     * The API key provider is invoked exactly once per call.
+     */
+    suspend fun streamChat(req: ChatRequest, onEvent: (StreamEvent) -> Unit): ChatResult {
+        val apiKey = apiKeyProvider()
+        var lastUsage: Usage? = null
+        fun recording(onEvent: (StreamEvent) -> Unit): (StreamEvent) -> Unit = { event ->
+            if (event is StreamEvent.Done) lastUsage = event.usage
+            onEvent(event)
+        }
+        return try {
+            http.preparePost(endpoint) {
+                contentType(ContentType.Application.Json)
+                headers {
+                    append(HttpHeaders.Authorization, "Bearer $apiKey")
+                    append(REFERER_HEADER, APP_REFERER)
+                    append(TITLE_HEADER, APP_TITLE)
+                }
+                setBody(requestBody(req).toString())
+            }.execute { response ->
+                if (!response.status.isSuccess()) {
+                    return@execute ChatResult.Failed(
+                        "HTTP ${response.status.value}: ${response.status.description}",
+                    )
+                }
+                val channel = response.bodyAsChannel()
+                val reader = SseReader(channel)
+                return@execute try {
+                    if (reader.events(recording(onEvent))) {
+                        ChatResult.Completed(lastUsage)
+                    } else {
+                        ChatResult.Interrupted(lastUsage)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    ChatResult.Interrupted(lastUsage)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ChatResult.Failed("stream setup failed: ${e.message}")
+        }
+    }
+
+    companion object {
+        const val BASE_URL: String = "https://openrouter.ai/api/v1"
+        private const val REFERER_HEADER = "HTTP-Referer"
+        private const val TITLE_HEADER = "X-Title"
+    }
+}
+
+/** OpenAI wire format: `{"role":..., "content":...}` (+ tool_call_id for tool results). */
+private fun ChatMessage.wireJson(): JsonObject = buildJsonObject {
+    when (this@wireJson) {
+        is SystemMessage -> {
+            put("role", "system")
+            put("content", content)
+        }
+        is UserMessage -> {
+            put("role", "user")
+            put("content", content)
+        }
+        is AssistantMessage -> {
+            put("role", "assistant")
+            put("content", content ?: "")
+        }
+        is ToolResultMessage -> {
+            put("role", "tool")
+            put("content", content)
+            put("tool_call_id", toolCallId)
+        }
+    }
+}
+
+private fun requestBody(req: ChatRequest): JsonObject = buildJsonObject {
+    put("model", req.model)
+    put("stream", true)
+    put("messages", JsonArray(req.messages.map { it.wireJson() }))
+    if (req.tools.isNotEmpty()) {
+        put(
+            "tools",
+            JsonArray(
+                req.tools.map { tool ->
+                    buildJsonObject {
+                        put("type", tool.type)
+                        put("parameters", chatJson.parseToJsonElement(tool.parametersJson))
+                    }
+                },
+            ),
+        )
+    }
+}
