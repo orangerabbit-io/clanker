@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import io.orangerabbit.clanker.agent.UiMessage
 import io.orangerabbit.clanker.model.MsgLifecycle
 import io.orangerabbit.clanker.model.ReasoningBlock
+import kotlin.math.roundToInt
 
 /**
  * One chat bubble. Assistant content renders markdown (mikepenz renderer via
@@ -115,5 +116,12 @@ private fun ReasoningSection(blocks: List<ReasoningBlock>, modifier: Modifier = 
 }
 
 /** Cost line: `$0.0012` or `cost unavailable` (brief Task 8 Step 4). */
-internal fun formatCost(cost: Double?): String =
-    if (cost == null) "cost unavailable" else "$%.4f".format(cost)
+internal fun formatCost(cost: Double?): String {
+    // "%f"-style String.format is a JVM-only stdlib extension and does not
+    // resolve on iOS/native targets, so format the four decimals manually.
+    if (cost == null) return "cost unavailable"
+    val tenThousandths = (cost * 10_000).roundToInt()
+    val dollars = tenThousandths / 10_000
+    val frac = tenThousandths % 10_000
+    return "\$$dollars.${frac.toString().padStart(4, '0')}"
+}
