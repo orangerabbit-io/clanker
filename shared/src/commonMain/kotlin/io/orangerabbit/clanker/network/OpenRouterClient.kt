@@ -2,10 +2,12 @@ package io.orangerabbit.clanker.network
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
@@ -44,6 +46,7 @@ class OpenRouterClient(
 
     private val http = engine?.let { HttpClient(it) } ?: HttpClient()
     private val endpoint = "$baseUrl/chat/completions"
+    private val modelsEndpoint = "$baseUrl/models"
 
     /**
      * Streams [req] to OpenRouter, delivering [StreamEvent]s to [onEvent] as
@@ -95,6 +98,21 @@ class OpenRouterClient(
         } catch (e: Exception) {
             ChatResult.Failed("stream setup failed: ${e.message}")
         }
+    }
+
+    /**
+     * Fetches the public model catalog from `GET /api/v1/models`, parsed into
+     * [ModelSummary]s sorted by name.
+     *
+     * No Authorization header: this endpoint is public and headers are
+     * per-request in this client, so it is simply omitted.
+     *
+     * @throws IllegalStateException on non-2xx HTTP response
+     */
+    suspend fun models(): List<ModelSummary> {
+        val response = http.get(modelsEndpoint)
+        check(response.status.value in 200..299) { "Model catalog fetch failed: HTTP ${response.status}" }
+        return parseCatalog(response.bodyAsText())
     }
 
     companion object {

@@ -185,6 +185,65 @@ class OpenRouterClientTest {
         assertNull((result as ChatResult.Completed).usage, "usage must be null when absent")
     }
 
+    // ── Model catalog (Task 7) ────────────────────────────────────────────────
+
+    /**
+     * Verifies models():
+     *  - GETs exactly `https://openrouter.ai/api/v1/models`
+     *  - sends no Authorization header (public endpoint)
+     *  - parses id/name/context_length/pricing.{prompt,completion}
+     *  - ignores unknown fixture fields (architecture, supported_parameters, ...)
+     *  - tolerates a missing context_length and non-numeric pricing (null, no throw)
+     *  - returns summaries sorted by name
+     */
+    @Test
+    fun modelsParsesCatalogSortedByNameAndToleratesMissingFields() = runTest {
+        val fixture = """
+            {"data":[
+              {"id":"openai/gpt-5.2","name":"OpenAI: GPT 5.2","context_length":400000,
+               "pricing":{"prompt":"0.0000015","completion":"0.0000075"},
+               "architecture":{"modality":"text"},"supported_parameters":["tools"]},
+              {"id":"anthropic/claude-4.5","name":"Anthropic: Claude 4.5","context_length":200000,
+               "pricing":{"prompt":"0.000003","completion":"0.000015"}},
+              {"id":"weird/broken","name":"Zeta: Broken","pricing":{"prompt":"free"}}
+            ]}
+        """.trimIndent()
+
+        var capturedMethod: String? = null
+        var capturedUrl: String? = null
+        var capturedAuth: String? = null
+        val engine = MockEngine { req ->
+            capturedMethod = req.method.value
+            capturedUrl = req.url.toString()
+            capturedAuth = req.headers[HttpHeaders.Authorization]
+            respond(
+                fixture,
+                HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        val models = client.models()
+
+        assertEquals("GET", capturedMethod, "models must use GET")
+        assertEquals(
+            "https://openrouter.ai/api/v1/models",
+            capturedUrl,
+            "must GET the models endpoint",
+        )
+        assertNull(capturedAuth, "models is a public endpoint; Authorization header must be omitted")
+        assertEquals(
+            listOf(
+                ModelSummary("anthropic/claude-4.5", "Anthropic: Claude 4.5", 200000, 0.000003, 0.000015),
+                ModelSummary("openai/gpt-5.2", "OpenAI: GPT 5.2", 400000, 0.0000015, 0.0000075),
+                ModelSummary("weird/broken", "Zeta: Broken", null, null, null),
+            ),
+            models,
+            "summaries must be parsed and sorted by name",
+        )
+    }
+
     // ── Base URL safety ───────────────────────────────────────────────────────
 
     /** Verifies the constructor throws on any non-HTTPS base URL override. */
