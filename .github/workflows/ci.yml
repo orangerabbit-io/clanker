@@ -31,4 +31,4 @@ jobs:
         with:
           name: clanker-debug-apk
           path: composeApp/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: warn
+          if-no-files-found: error

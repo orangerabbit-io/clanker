@@ -51,11 +51,13 @@ jobs:
       - name: Upload release APK
         if: steps.semrel.outputs.new_release_published == 'true'
         run: |
-          gh release upload "${{ steps.semrel.outputs.new_release_version }}" \
-            composeApp/build/outputs/apk/release/app-release.apk \
+          VER="${{ steps.semrel.outputs.new_release_version }}"
+          APK_NAME="clanker-v${VER}.apk"
+          cp composeApp/build/outputs/apk/release/app-release.apk "${APK_NAME}"
+          gh release upload \
+            "${{ steps.semrel.outputs.new_release_tag }}" \
+            "${APK_NAME}" \
             --clobber \
-            --repo "${{ github.repository }}" \
-            --rename \
-              "clanker-v${{ steps.semrel.outputs.new_release_version }}.apk"
+            --repo "${{ github.repository }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
