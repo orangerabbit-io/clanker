@@ -106,7 +106,7 @@ The message model never flattens provider-specific blocks — adding an API surf
 
 Open-source repo scaffold; no store, no payments.
 
-1. App scaffold: KMP project, Compose shell, navigation, theming; Nix flake devShell; CI (build + tests).
+1. App scaffold: KMP project, Compose shell, navigation, theming; Nix flake devShell; CI/CD from day one — CI (build + tests) on every PR, and on merge to `main` a release pipeline builds a **signed release APK and attaches it to the GitHub Release**, so personal installs and testing happen via Obtainium tracking the public repo.
 2. OAuth PKCE connect: open `openrouter.ai/auth` with S256 challenge, exchange code for user-controlled key, store encrypted. Spike first (see §9): callback handling on mobile (custom scheme vs universal links vs localhost).
 3. Streaming chat: conversation list, model picker (catalog API), markdown rendering, streaming bubbles, reasoning display, per-response cost display.
 4. Server tools: `web_search`, `web_fetch`, `datetime` — per-chat toggles, sources UI for search results, capped `max_results`.
@@ -182,7 +182,7 @@ Reselling/markup of inference, sync backend, push notifications, web client, vid
 
 ## 10. Repository
 
-- New repo: `~/projects/orangerabbit-io/clanker/` (this one).
-- Trunk-based, PR-gated per global workflow; semantic-release from Phase 1 CI.
+- New repo: `~/projects/orangerabbit-io/clanker/` (this one), **public from day one** — Obtainium needs a public repo to track releases for APK installs; the app is open-source by design, and store publishing remains Phase 2.
+- Trunk-based, PR-gated per global workflow (branch protection is enforceable on a public repo); semantic-release from Phase 1 CI.
 - clanker v1 repo remains untouched as reference.
 - Execution method: implementation runs via **subagent-driven development** (sequential implementer subagents per task within one worktree/branch per phase; parallelism only across independent phases/workstreams), per the global workflow.
