@@ -30,6 +30,13 @@ class SseReader(private val readLine: suspend () -> String?) {
             val delta = chunk.choices.firstOrNull()?.delta
             delta?.content?.let { onEvent(StreamEvent.Content(it)) }
             delta?.reasoning?.let { onEvent(StreamEvent.Reasoning(it)) }
+            delta?.annotations
+                ?.mapNotNull { it.urlCitation }
+                ?.filter { !it.url.isNullOrBlank() }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { citations ->
+                    onEvent(StreamEvent.Sources(citations.map { Source(it.url!!, it.title) }))
+                }
             if (chunk.usage != null && !usageEmitted) {
                 usageEmitted = true
                 onEvent(StreamEvent.Done(chunk.usage.toUsage()))

@@ -1,6 +1,7 @@
 package io.orangerabbit.clanker.agent
 
 import io.orangerabbit.clanker.model.MsgLifecycle
+import io.orangerabbit.clanker.network.Source
 import io.orangerabbit.clanker.network.Usage
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -134,5 +135,56 @@ class ChatReducerTest {
         assertEquals(listOf("user"), state.messages.map { it.role })
         assertEquals("Hi", state.messages.single().content)
         assertTrue(!state.running)
+    }
+
+    // ── Task 9: server tools ─────────────────────────────────────────────
+
+    @Test
+    fun sourcesEventsAccumulateIntoStreamingAssistantBubble() {
+        var state = initialState()
+        state = reduce(state, ChatUiEvent.Content("answer"))
+        state = reduce(
+            state,
+            ChatUiEvent.Sources(listOf(Source("https://a.io", "A"), Source("https://b.io", null))),
+        )
+        state = reduce(state, ChatUiEvent.Sources(listOf(Source("https://c.io", "C"))))
+
+        val assistant = state.messages.last()
+        assertEquals(
+            listOf(
+                Source("https://a.io", "A"),
+                Source("https://b.io", null),
+                Source("https://c.io", "C"),
+            ),
+            assistant.sources,
+        )
+        assertEquals(MsgLifecycle.STREAMING, assistant.lifecycle)
+    }
+
+    @Test
+    fun doneCarriesServerToolUseCountsIntoUiMessage() {
+        val usageWithTools = Usage(
+            totalCost = 0.01,
+            promptTokens = 10L,
+            completionTokens = 5L,
+            serverToolUse = mapOf("web_search_requests" to 2, "web_fetch_requests" to 1),
+        )
+        var state = initialState()
+        state = reduce(state, ChatUiEvent.Content("hi"))
+        state = reduce(state, ChatUiEvent.Done(usageWithTools))
+
+        assertEquals(mapOf("web_search_requests" to 2, "web_fetch_requests" to 1), state.messages.last().serverToolUse)
+    }
+
+    @Test
+    fun interruptedCarriesServerToolUseCountsToo() {
+        var state = initialState()
+        state = reduce(state, ChatUiEvent.Content("hi"))
+        state = reduce(
+            state,
+            ChatUiEvent.Interrupted(Usage(0.01, 10L, 5L, mapOf("web_search_requests" to 1))),
+        )
+
+        assertEquals(mapOf("web_search_requests" to 1), state.messages.last().serverToolUse)
     }
 }

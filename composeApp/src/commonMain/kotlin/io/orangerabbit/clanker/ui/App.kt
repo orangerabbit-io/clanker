@@ -8,6 +8,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import io.ktor.client.HttpClient
 import io.orangerabbit.clanker.network.OpenRouterClient
+import io.orangerabbit.clanker.persistence.ChatSettingsCodec
 import io.orangerabbit.clanker.persistence.ConversationRepository
 import io.orangerabbit.clanker.security.SecretStore
 import io.orangerabbit.clanker.ui.chat.ChatScreen
@@ -15,13 +16,14 @@ import io.orangerabbit.clanker.ui.list.ConversationListScreen
 import io.orangerabbit.clanker.ui.settings.SettingsScreen
 import io.orangerabbit.clanker.ui.theme.ClankerTheme
 import io.orangerabbit.clanker.util.KeepAwake
+import io.orangerabbit.clanker.agent.ChatSettings
 import kotlinx.coroutines.launch
 
 /** Top-level navigation state: List → Chat(id) → Settings (Task 8 Step 4). */
 sealed interface AppScreen {
     data object List : AppScreen
     data object Settings : AppScreen
-    data class Chat(val conversationId: String, val model: String) : AppScreen
+    data class Chat(val conversationId: String, val settingsJson: String) : AppScreen
 }
 
 /**
@@ -33,8 +35,8 @@ sealed interface AppScreen {
  * the embedded ConnectFlow whenever the Settings screen opens.
  *
  * New chats are created through the repository before navigation so the chat
- * always has a persisted conversation id (title "New chat"; the model id is
- * stored in settingsJson and reused when reopening the conversation).
+ * always has a persisted conversation id (title "New chat"; the model id and
+ * per-chat tool preferences are stored in settingsJson via ChatSettingsCodec).
  */
 @Composable
 fun App(
@@ -76,8 +78,9 @@ fun App(
                         } else {
                             scope.launch {
                                 val id = newConversationId()
-                                repository.createConversation(id, "New chat", model)
-                                screen = AppScreen.Chat(id, model)
+                                val settingsJson = ChatSettingsCodec.encode(model = model, settings = ChatSettings())
+                                repository.createConversation(id, "New chat", settingsJson)
+                                screen = AppScreen.Chat(id, settingsJson)
                             }
                         }
                     },
@@ -100,7 +103,7 @@ fun App(
                     client = client,
                     keepAwake = keepAwake,
                     conversationId = current.conversationId,
-                    model = current.model,
+                    storedSettingsJson = current.settingsJson,
                     onBack = onBack,
                 )
             }

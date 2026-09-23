@@ -4,6 +4,7 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.orangerabbit.clanker.db.ClankerDb
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
@@ -30,6 +31,18 @@ class RepositoryTest {
         val messages = repo.messagesFor("c1")
         assertEquals(1, messages.size)
         assertEquals("""{"x":1}""", messages.first().rawJson)
+    }
+
+    @Test
+    fun updateConversationSettingsPersistsChange() = runBlocking {
+        val (_, db) = freshDb()
+        val repo = ConversationRepository(db)
+
+        repo.createConversation("c1", "Test", "{}")
+        repo.updateConversationSettings("c1", """{"model":"m","tools":["WEB_SEARCH"]}""")
+
+        val conversation = repo.conversations().first().single { it.id == "c1" }
+        assertEquals("""{"model":"m","tools":["WEB_SEARCH"]}""", conversation.settingsJson)
     }
 
     @Test

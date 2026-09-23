@@ -19,5 +19,6 @@ insertMessage: INSERT INTO message(id, conversationId, role, content, toolCallsJ
 selectMessages: SELECT * FROM message WHERE conversationId = ? ORDER BY createdAt;
 selectAll: SELECT * FROM conversation ORDER BY createdAt DESC;
 insertConversation: INSERT INTO conversation(id, title, settingsJson, createdAt) VALUES(?, ?, ?, ?);
+updateConversationSettings: UPDATE conversation SET settingsJson = ? WHERE id = ?;
 deleteConversation: DELETE FROM conversation WHERE id = ?;
 deleteMessages: DELETE FROM message WHERE conversationId = ?;

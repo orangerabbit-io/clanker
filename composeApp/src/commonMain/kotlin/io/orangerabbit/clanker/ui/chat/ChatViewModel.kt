@@ -14,8 +14,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import io.orangerabbit.clanker.agent.ChatSettings
 import io.orangerabbit.clanker.agent.ChatUiEvent
 import io.orangerabbit.clanker.agent.ChatUiState
+import io.orangerabbit.clanker.agent.ServerTool
+import io.orangerabbit.clanker.agent.ToolPolicy
 import io.orangerabbit.clanker.agent.UiMessage
 import io.orangerabbit.clanker.agent.reduce
 import io.orangerabbit.clanker.model.AssistantMessage
@@ -27,6 +30,7 @@ import io.orangerabbit.clanker.network.ChatRequest
 import io.orangerabbit.clanker.network.ChatResult
 import io.orangerabbit.clanker.network.OpenRouterClient
 import io.orangerabbit.clanker.network.StreamEvent
+import io.orangerabbit.clanker.persistence.ChatSettingsCodec
 import io.orangerabbit.clanker.persistence.ConversationRepository
 import io.orangerabbit.clanker.persistence.StoredMessage
 import io.orangerabbit.clanker.security.SecretStore
@@ -44,6 +48,10 @@ import io.orangerabbit.clanker.util.KeepAwake
  * Per-message cost is likewise only available in the live session — it is not a
  * persisted column, so reloaded messages render "cost unavailable".
  *
+ * Per-chat tool preferences ([ChatSettings]) are persisted in the
+ * conversation's settingsJson via [ChatSettingsCodec]; the model id lives in
+ * the same field (legacy bare-model strings decode to default tool settings).
+ *
  * Keep-awake ownership: the ViewModel acquires on send and releases on every
  * terminal path (completed, interrupted, cancelled, stream error), so the flag
  * tracks the `running` lifecycle even if the composable leaves composition.
@@ -56,9 +64,14 @@ class ChatViewModel(
     private val conversationId: String,
     private val model: String,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+    chatSettings: ChatSettings = ChatSettings(),
 ) {
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
+
+    /** Per-chat tool preferences (decoded from the conversation's settingsJson). */
+    private val _toolSettings = MutableStateFlow(chatSettings)
+    val toolSettings: StateFlow<ChatSettings> = _toolSettings.asStateFlow()
 
     private var streamJob: Job? = null
 
@@ -69,6 +82,26 @@ class ChatViewModel(
                 _state.update { it.copy(messages = stored.map { m -> m.toUiMessage() }) }
             } catch (e: Exception) {
                 _state.update { it.copy(error = "Failed to load history: ${e.message ?: "unknown error"}") }
+            }
+        }
+    }
+
+    /** Toggles [tool] for this chat and persists the new preferences. */
+    fun toggleTool(tool: ServerTool) {
+        val updated = _toolSettings.value.copy(tools = if (tool in _toolSettings.value.tools) {
+            _toolSettings.value.tools - tool
+        } else {
+            _toolSettings.value.tools + tool
+        })
+        _toolSettings.value = updated
+        scope.launch {
+            try {
+                repository.updateConversationSettings(
+                    id = conversationId,
+                    settingsJson = ChatSettingsCodec.encode(model = model, settings = updated),
+                )
+            } catch (e: Exception) {
+                _state.update { it.copy(error = "Failed to save tool settings: ${e.message ?: "unknown error"}") }
             }
         }
     }
@@ -110,11 +143,14 @@ class ChatViewModel(
                 val request = ChatRequest(
                     model = model,
                     messages = _state.value.messages.mapNotNull { it.toChatMessage() },
+                    tools = ToolPolicy.toToolSpecs(_toolSettings.value),
+                    maxToolCalls = _toolSettings.value.maxToolCalls,
                 )
                 val result = client.streamChat(request) { event ->
                     when (event) {
                         is StreamEvent.Content -> _state.update { s -> reduce(s, ChatUiEvent.Content(event.text)) }
                         is StreamEvent.Reasoning -> _state.update { s -> reduce(s, ChatUiEvent.Reasoning(event.text)) }
+                        is StreamEvent.Sources -> _state.update { s -> reduce(s, ChatUiEvent.Sources(event.sources)) }
                         // StreamEvent.Done is ignored: the terminal reduce is driven by
                         // ChatResult below (exactly one finalization per stream).
                         is StreamEvent.Done -> {}

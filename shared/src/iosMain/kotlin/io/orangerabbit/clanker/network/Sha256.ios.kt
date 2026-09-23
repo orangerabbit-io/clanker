@@ -10,13 +10,14 @@ import platform.CoreCrypto.CC_SHA256_DIGEST_LENGTH
 /**
  * iOS actual: SHA-256 via Apple CommonCrypto CC_SHA256.
  *
- * Requires a macOS toolchain to compile — this file is structurally correct per the
- * CommonCrypto C API and is CI / macOS-verified. It cannot be compiled locally on JVM/Linux.
+ * CC_SHA256 operates on `unsigned char *` (Kotlin `UByteVar`), so the pinned
+ * buffers must be UByteArrays — a pinned ByteArray yields CPointer<ByteVar>,
+ * which does not match the interop signature.
  */
 @OptIn(ExperimentalForeignApi::class)
 actual fun sha256B64Url(input: String): String {
-    val data = input.encodeToByteArray()
-    val digest = ByteArray(CC_SHA256_DIGEST_LENGTH.toInt())
+    val data = input.encodeToByteArray().asUByteArray()
+    val digest = UByteArray(CC_SHA256_DIGEST_LENGTH)
     data.usePinned { pinnedInput ->
         digest.usePinned { pinnedDigest ->
             CC_SHA256(
@@ -26,5 +27,5 @@ actual fun sha256B64Url(input: String): String {
             )
         }
     }
-    return digest.toBase64UrlNoPadding()
+    return digest.toByteArray().toBase64UrlNoPadding()
 }

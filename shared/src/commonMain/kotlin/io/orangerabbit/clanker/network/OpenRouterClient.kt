@@ -136,6 +136,26 @@ private fun ChatMessage.wireJson(): JsonObject = buildJsonObject {
         is AssistantMessage -> {
             put("role", "assistant")
             put("content", content ?: "")
+            if (toolCalls.isNotEmpty()) {
+                put(
+                    "tool_calls",
+                    JsonArray(
+                        toolCalls.map { call ->
+                            buildJsonObject {
+                                put("id", call.id)
+                                put("type", "function")
+                                put(
+                                    "function",
+                                    buildJsonObject {
+                                        put("name", call.name)
+                                        put("arguments", call.argumentsJson)
+                                    },
+                                )
+                            }
+                        },
+                    ),
+                )
+            }
         }
         is ToolResultMessage -> {
             put("role", "tool")
@@ -149,6 +169,7 @@ private fun requestBody(req: ChatRequest): JsonObject = buildJsonObject {
     put("model", req.model)
     put("stream", true)
     put("messages", JsonArray(req.messages.map { it.wireJson() }))
+    req.maxToolCalls?.let { put("max_tool_calls", it) }
     if (req.tools.isNotEmpty()) {
         put(
             "tools",
@@ -156,7 +177,7 @@ private fun requestBody(req: ChatRequest): JsonObject = buildJsonObject {
                 req.tools.map { tool ->
                     buildJsonObject {
                         put("type", tool.type)
-                        put("parameters", chatJson.parseToJsonElement(tool.parametersJson))
+                        tool.parametersJson?.let { put("parameters", chatJson.parseToJsonElement(it)) }
                     }
                 },
             ),

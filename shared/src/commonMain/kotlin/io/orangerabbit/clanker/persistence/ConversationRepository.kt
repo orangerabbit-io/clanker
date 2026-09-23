@@ -3,7 +3,6 @@ package io.orangerabbit.clanker.persistence
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import io.orangerabbit.clanker.db.ClankerDb
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -32,13 +31,19 @@ class ConversationRepository(private val db: ClankerDb) {
     private val queries get() = db.clankerQueries
 
     suspend fun createConversation(id: String, title: String, settingsJson: String): Unit =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             queries.insertConversation(
                 id = id,
                 title = title,
                 settingsJson = settingsJson,
                 createdAt = currentTimeMs(),
             )
+        }
+
+    /** Overwrites the stored settingsJson (per-chat tool preferences, Task 9). */
+    suspend fun updateConversationSettings(id: String, settingsJson: String): Unit =
+        withContext(ioDispatcher) {
+            queries.updateConversationSettings(settingsJson, id)
         }
 
     suspend fun appendMessage(
@@ -49,7 +54,7 @@ class ConversationRepository(private val db: ClankerDb) {
         reasoningJson: String?,
         rawJson: String?,
         lifecycle: String,
-    ): Unit = withContext(Dispatchers.IO) {
+    ): Unit = withContext(ioDispatcher) {
         queries.insertMessage(
             id = randomId(),
             conversationId = conversationId,
@@ -64,18 +69,18 @@ class ConversationRepository(private val db: ClankerDb) {
     }
 
     suspend fun messagesFor(conversationId: String): List<StoredMessage> =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             queries.selectMessages(conversationId).executeAsList().map { it.toStoredMessage() }
         }
 
     fun conversations(): Flow<List<Conversation>> =
         queries.selectAll()
             .asFlow()
-            .mapToList(Dispatchers.IO)
+            .mapToList(ioDispatcher)
             .map { list -> list.map { it.toConversation() } }
 
     suspend fun deleteConversation(id: String): Unit =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             queries.deleteConversation(id)
         }
 

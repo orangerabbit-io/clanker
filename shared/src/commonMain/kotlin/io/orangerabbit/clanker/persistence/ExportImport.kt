@@ -1,7 +1,6 @@
 package io.orangerabbit.clanker.persistence
 
 import io.orangerabbit.clanker.db.ClankerDb
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -37,7 +36,7 @@ class ExportImport(private val db: ClankerDb) {
     private val json = Json { ignoreUnknownKeys = true }
 
     /** Serializes all conversations and their messages to a JSON string. */
-    suspend fun exportAll(): String = withContext(Dispatchers.IO) {
+    suspend fun exportAll(): String = withContext(ioDispatcher) {
         val conversations = db.clankerQueries.selectAll().executeAsList()
         val exportData = conversations.map { conv ->
             val messages = db.clankerQueries.selectMessages(conv.id).executeAsList()
@@ -68,7 +67,7 @@ class ExportImport(private val db: ClankerDb) {
      * Inserts all conversations and messages from [jsonStr], preserving ids and rawJson.
      * Returns the number of conversations imported.
      */
-    suspend fun importAll(jsonStr: String): Int = withContext(Dispatchers.IO) {
+    suspend fun importAll(jsonStr: String): Int = withContext(ioDispatcher) {
         val payload = json.decodeFromString<ExportPayload>(jsonStr)
         for (conv in payload.conversations) {
             db.clankerQueries.insertConversation(

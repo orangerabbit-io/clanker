@@ -1,33 +1,40 @@
 package io.orangerabbit.clanker.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import io.orangerabbit.clanker.model.ToolCall
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextOverflow
+import io.orangerabbit.clanker.network.Source
 
 /**
- * Collapsed row for tool-call results (Task 9's server tools populate these;
- * the reducer already carries [UiMessage.toolCalls] through).
+ * Source chips from server-tool url_citation annotations (Task 9): one row per
+ * source showing its title (or URL when untitled); tapping opens the platform
+ * browser via [LocalUriHandler].
  */
 @Composable
-fun SourcesRow(toolCalls: List<ToolCall>, modifier: Modifier = Modifier) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    TextButton(onClick = { expanded = !expanded }, modifier = modifier) {
-        Text(text = "Sources (${toolCalls.size})")
-    }
-    if (expanded) {
-        toolCalls.forEach { call ->
-            Text(
-                text = "${call.name}(${call.argumentsJson})",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+fun SourcesRow(sources: List<Source>, modifier: Modifier = Modifier) {
+    val uriHandler = LocalUriHandler.current
+    Column(modifier = modifier) {
+        Text(
+            text = "Sources",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        sources.forEach { source ->
+            TextButton(
+                onClick = { runCatching { uriHandler.openUri(source.url) } },
+            ) {
+                Text(
+                    text = source.title ?: source.url,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
     }
 }

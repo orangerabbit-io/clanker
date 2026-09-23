@@ -3,6 +3,7 @@ package io.orangerabbit.clanker.agent
 import io.orangerabbit.clanker.model.MsgLifecycle
 import io.orangerabbit.clanker.model.ReasoningBlock
 import io.orangerabbit.clanker.model.ToolCall
+import io.orangerabbit.clanker.network.Source
 import io.orangerabbit.clanker.network.Usage
 
 /**
@@ -20,6 +21,8 @@ data class UiMessage(
     val reasoning: List<ReasoningBlock> = emptyList(),
     val cost: Double? = null,
     val toolCalls: List<ToolCall> = emptyList(),
+    val sources: List<Source> = emptyList(),
+    val serverToolUse: Map<String, Int>? = null,
 )
 
 /** Full UI state of one chat screen. */
@@ -42,6 +45,7 @@ data class ChatUiState(
 sealed interface ChatUiEvent {
     data class Content(val text: String) : ChatUiEvent
     data class Reasoning(val text: String) : ChatUiEvent
+    data class Sources(val sources: List<Source>) : ChatUiEvent
     data class Done(val usage: Usage?) : ChatUiEvent
     data class Interrupted(val usage: Usage?) : ChatUiEvent
     data class Failed(val message: String) : ChatUiEvent
@@ -57,6 +61,7 @@ private const val REASONING_TYPE = "reasoning"
  */
 fun reduce(state: ChatUiState, event: ChatUiEvent): ChatUiState = when (event) {
     is ChatUiEvent.Content -> state.streamAssistant { it.copy(content = it.content + event.text) }
+    is ChatUiEvent.Sources -> state.streamAssistant { it.copy(sources = it.sources + event.sources) }
     is ChatUiEvent.Reasoning -> state.streamAssistant { msg ->
         val blocks = msg.reasoning.toMutableList()
         if (blocks.isNotEmpty()) {
@@ -67,10 +72,16 @@ fun reduce(state: ChatUiState, event: ChatUiEvent): ChatUiState = when (event) {
         }
         msg.copy(reasoning = blocks)
     }
-    is ChatUiEvent.Done -> state.finalizeAssistant(MsgLifecycle.COMPLETE, cost = event.usage?.totalCost, error = null)
+    is ChatUiEvent.Done ->
+        state.finalizeAssistant(MsgLifecycle.COMPLETE, cost = event.usage?.totalCost, serverToolUse = event.usage?.serverToolUse, error = null)
     is ChatUiEvent.Interrupted ->
-        state.finalizeAssistant(MsgLifecycle.INTERRUPTED, cost = event.usage?.totalCost, error = "Stream interrupted.")
-    is ChatUiEvent.Failed -> state.finalizeAssistant(MsgLifecycle.INTERRUPTED, cost = null, error = event.message)
+        state.finalizeAssistant(
+            MsgLifecycle.INTERRUPTED,
+            cost = event.usage?.totalCost,
+            serverToolUse = event.usage?.serverToolUse,
+            error = "Stream interrupted.",
+        )
+    is ChatUiEvent.Failed -> state.finalizeAssistant(MsgLifecycle.INTERRUPTED, cost = null, serverToolUse = null, error = event.message)
 }
 
 /** Appends to the trailing STREAMING assistant message, creating it on first delta. */
@@ -89,12 +100,13 @@ private fun ChatUiState.streamAssistant(transform: (UiMessage) -> UiMessage): Ch
 private fun ChatUiState.finalizeAssistant(
     lifecycle: MsgLifecycle,
     cost: Double?,
+    serverToolUse: Map<String, Int>?,
     error: String?,
 ): ChatUiState {
     val messages = messages.toMutableList()
     val last = messages.lastOrNull()
     if (last != null && last.role == "assistant" && last.lifecycle == MsgLifecycle.STREAMING) {
-        messages[messages.lastIndex] = last.copy(lifecycle = lifecycle, cost = cost)
+        messages[messages.lastIndex] = last.copy(lifecycle = lifecycle, cost = cost, serverToolUse = serverToolUse)
     }
     return copy(messages = messages, running = false, error = error ?: stateErrorOrNull(this, error))
 }

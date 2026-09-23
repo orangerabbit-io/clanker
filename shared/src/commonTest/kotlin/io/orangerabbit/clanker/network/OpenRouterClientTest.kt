@@ -7,6 +7,12 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.writeFully
+import io.orangerabbit.clanker.agent.ChatSettings
+import io.orangerabbit.clanker.agent.ServerTool
+import io.orangerabbit.clanker.agent.ToolPolicy
+import io.orangerabbit.clanker.model.AssistantMessage
+import io.orangerabbit.clanker.model.ToolCall
 import io.orangerabbit.clanker.model.UserMessage
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,6 +20,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.io.Buffer
 import kotlinx.io.RawSource
 import kotlinx.io.buffered
@@ -242,6 +253,155 @@ class OpenRouterClientTest {
             models,
             "summaries must be parsed and sorted by name",
         )
+    }
+
+    // ── Task 9: server tools ─────────────────────────────────────────────────
+
+    private val bodyJson = Json { ignoreUnknownKeys = true }
+
+    /** MockEngine capturing the request body and replying with [fixture]. */
+    private fun bodyCapturingEngine(
+        fixture: String,
+        onBody: (String) -> Unit,
+    ): MockEngine = MockEngine { req ->
+        onBody((req.body as OutgoingContent.ByteArrayContent).bytes().decodeToString())
+        respond(
+            fixture,
+            HttpStatusCode.OK,
+            headers = headersOf(HttpHeaders.ContentType, "text/event-stream"),
+        )
+    }
+
+    /**
+     * Task 9 Step 2: `ChatRequest(tools = ToolPolicy.toToolSpecs(...))` must
+     * produce a request body whose `tools` array matches the brief's exact
+     * wire shapes (decoded from the MockEngine-recorded body).
+     */
+    @Test
+    fun toolsArrayInRequestBodyMatchesPolicySpecs() = runTest {
+        var capturedBody: String? = null
+        val engine = bodyCapturingEngine(
+            fixture = "data: [DONE]\n\n",
+            onBody = { capturedBody = it },
+        )
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        val request = ChatRequest(
+            model = "openai/gpt-4o-mini",
+            messages = listOf(UserMessage("Hi")),
+            tools = ToolPolicy.toToolSpecs(
+                ChatSettings(tools = setOf(ServerTool.WEB_SEARCH, ServerTool.WEB_FETCH, ServerTool.DATETIME)),
+            ),
+        )
+        client.streamChat(request, onEvent = {})
+
+        val tools = bodyJson.parseToJsonElement(capturedBody ?: error("body must be captured"))
+            .jsonObject["tools"]
+        assertEquals(
+            bodyJson.parseToJsonElement(
+                """[{"type":"openrouter:web_search","parameters":{"max_results":5}},""" +
+                    """{"type":"openrouter:web_fetch"},{"type":"openrouter:datetime"}]""",
+            ),
+            tools,
+            "tools array must match the brief's exact wire shapes",
+        )
+    }
+
+    /** `maxToolCalls` must land as the top-level integer `max_tool_calls` field. */
+    @Test
+    fun maxToolCallsLandsAsTopLevelRequestField() = runTest {
+        var capturedBody: String? = null
+        val engine = bodyCapturingEngine(fixture = "data: [DONE]\n\n", onBody = { capturedBody = it })
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        client.streamChat(
+            ChatRequest(model = "openai/gpt-4o-mini", messages = listOf(UserMessage("Hi")), maxToolCalls = 3),
+            onEvent = {},
+        )
+
+        val body = bodyJson.parseToJsonElement(capturedBody ?: error("body must be captured")).jsonObject
+        assertEquals(JsonPrimitive(3), body["max_tool_calls"], "max_tool_calls must be a top-level integer")
+        assertNull(body["spend_cap_usd"], "fields outside the request DTO must stay absent")
+    }
+
+    /** AssistantMessage.toolCalls must map to the OpenAI `tool_calls` wire array. */
+    @Test
+    fun assistantToolCallsAreWiredAsToolCallsArray() = runTest {
+        var capturedBody: String? = null
+        val engine = bodyCapturingEngine(fixture = "data: [DONE]\n\n", onBody = { capturedBody = it })
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        client.streamChat(
+            ChatRequest(
+                model = "openai/gpt-4o-mini",
+                messages = listOf(
+                    UserMessage("Hi"),
+                    AssistantMessage(
+                        content = null,
+                        toolCalls = listOf(ToolCall(id = "call_1", name = "lookup", argumentsJson = """{"q":"x"}""")),
+                    ),
+                ),
+            ),
+            onEvent = {},
+        )
+
+        val messages = bodyJson.parseToJsonElement(capturedBody ?: error("body must be captured"))
+            .jsonObject["messages"]!!.jsonArray
+        val assistant = messages[1].jsonObject
+        assertEquals("assistant", assistant["role"]?.jsonPrimitive?.content)
+        assertEquals(
+            bodyJson.parseToJsonElement(
+                """[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"x\"}"}}]""",
+            ),
+            assistant["tool_calls"],
+            "AssistantMessage.toolCalls must map to the OpenAI tool_calls wire array",
+        )
+    }
+
+    /** `usage.server_tool_use` counts must surface on the public Usage. */
+    @Test
+    fun serverToolUseCountsSurfaceInUsage() = runTest {
+        val fixture =
+            """data: {"choices":[{"delta":{"content":"hi"}}],"usage":{"cost":0.01,""" +
+                """"server_tool_use":{"web_search_requests":2,"web_fetch_requests":1}}}""" +
+                "\n\ndata: [DONE]\n\n"
+        val engine = MockEngine { _ ->
+            respond(fixture, HttpStatusCode.OK, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        val events = mutableListOf<StreamEvent>()
+        val result = client.streamChat(request, onEvent = { events.add(it) })
+
+        val expected = mapOf("web_search_requests" to 2, "web_fetch_requests" to 1)
+        assertEquals(
+            expected,
+            events.filterIsInstance<StreamEvent.Done>().single().usage.serverToolUse,
+            "Done event usage must carry server_tool_use counts",
+        )
+        assertEquals(expected, (result as ChatResult.Completed).usage?.serverToolUse)
+    }
+
+    /** `annotations` url_citations in a delta must surface as a Sources event. */
+    @Test
+    fun urlCitationAnnotationsEmitSourcesEvent() = runTest {
+        val fixture =
+            """data: {"choices":[{"delta":{"content":"answer",""" +
+                """"annotations":[{"type":"url_citation","url_citation":{"url":"https://a.io","title":"A","content":"snippet"}}]}}]}""" +
+                "\n\ndata: [DONE]\n\n"
+        val engine = MockEngine { _ ->
+            respond(fixture, HttpStatusCode.OK, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        val events = mutableListOf<StreamEvent>()
+        client.streamChat(request, onEvent = { events.add(it) })
+
+        assertEquals(
+            listOf(Source(url = "https://a.io", title = "A")),
+            events.filterIsInstance<StreamEvent.Sources>().single().sources,
+        )
+        assertEquals(listOf("answer"), events.filterIsInstance<StreamEvent.Content>().map { it.text })
     }
 
     // ── Base URL safety ───────────────────────────────────────────────────────

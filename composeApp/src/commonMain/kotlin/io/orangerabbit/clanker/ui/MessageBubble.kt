@@ -72,6 +72,15 @@ private fun AssistantBubble(message: UiMessage, modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        message.serverToolUse?.let { counts ->
+            Text(
+                text = counts.entries.joinToString(
+                    separator = ", ",
+                ) { "${it.key.replace("_requests", "")}: ${it.value}" },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (message.lifecycle == MsgLifecycle.INTERRUPTED) {
             Text(
                 text = "interrupted",
@@ -79,8 +88,8 @@ private fun AssistantBubble(message: UiMessage, modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        if (message.toolCalls.isNotEmpty()) {
-            SourcesRow(message.toolCalls)
+        if (message.sources.isNotEmpty()) {
+            SourcesRow(message.sources)
         }
     }
 }
