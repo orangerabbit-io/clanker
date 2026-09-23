@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    iOS URL-scheme registration for the OpenRouter PKCE OAuth callback.
+
+    INTEGRATION NOTE (Task 11/12):
+    When the Xcode project is created, merge this CFBundleURLTypes entry into the
+    app target's Info.plist.  The Xcode project generator (KMP Wizard / manual) places
+    Info.plist at <XcodeProject>/<TargetName>/Info.plist relative to the repository root.
+
+    After adding the entry, verify by tapping "Authorize in Browser" in the app and
+    confirming the browser redirects back via clanker://oauth?code=<code>.
+-->
+<plist version="1.0">
+<dict>
+    <!-- Register the clanker:// custom URL scheme so iOS routes the OpenRouter
+         OAuth callback (`clanker://oauth?code=<code>`) back to this app. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>io.orangerabbit.clanker.oauth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>clanker</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

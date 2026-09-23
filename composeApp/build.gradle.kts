@@ -46,6 +46,16 @@ kotlin {
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
+            implementation(libs.ktor.client.okhttp)
+        }
+        // Darwin engine required by MainViewController.kt (iOS only).
+        // iosMain shared source set is not present in this KMP config; add dependency
+        // to each iOS target's main source set individually.
+        val iosArm64Main by getting {
+            dependencies { implementation(libs.ktor.client.darwin) }
+        }
+        val iosSimulatorArm64Main by getting {
+            dependencies { implementation(libs.ktor.client.darwin) }
         }
     }
 }
