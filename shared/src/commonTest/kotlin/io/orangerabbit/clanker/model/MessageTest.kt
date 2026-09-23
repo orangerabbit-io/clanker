@@ -4,6 +4,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 
 class MessageTest {
 
@@ -33,5 +34,32 @@ class MessageTest {
     fun lifecycleDefaultIsStreaming() {
         val msg = AssistantMessage(content = "hello")
         assertEquals(MsgLifecycle.STREAMING, msg.lifecycle)
+    }
+
+    // Task 2 deferred: polymorphic discriminator behaviour
+    @Test
+    fun chatMessagePolymorphicRoundTrip() {
+        val msg: ChatMessage = AssistantMessage(
+            content = "hi",
+            lifecycle = MsgLifecycle.COMPLETE,
+        )
+        val encoded = Json.encodeToString<ChatMessage>(msg)
+        val decoded = Json.decodeFromString<ChatMessage>(encoded)
+        assertEquals(msg, decoded)
+        assertIs<AssistantMessage>(decoded)
+    }
+
+    // Task 2 deferred: WireEnvelope preserves rawJson verbatim
+    @Test
+    fun wireEnvelopeRoundTrip() {
+        val rawJson = """{"model":"claude-3-5","content":"hello"}"""
+        val envelope = WireEnvelope(
+            rawJson = rawJson,
+            typed = AssistantMessage(content = "hello"),
+        )
+        val encoded = Json.encodeToString(envelope)
+        val decoded = Json.decodeFromString<WireEnvelope>(encoded)
+        assertEquals(rawJson, decoded.rawJson)
+        assertEquals(envelope.typed, decoded.typed)
     }
 }

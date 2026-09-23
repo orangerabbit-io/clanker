@@ -1,0 +1,23 @@
+CREATE TABLE conversation (
+  id TEXT PRIMARY KEY NOT NULL,
+  title TEXT NOT NULL,
+  settingsJson TEXT NOT NULL,
+  createdAt INTEGER NOT NULL
+);
+CREATE TABLE message (
+  id TEXT PRIMARY KEY NOT NULL,
+  conversationId TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  content TEXT,
+  toolCallsJson TEXT,
+  reasoningJson TEXT,
+  rawJson TEXT,
+  lifecycle TEXT NOT NULL,
+  createdAt INTEGER NOT NULL
+);
+insertMessage: INSERT INTO message(id, conversationId, role, content, toolCallsJson, reasoningJson, rawJson, lifecycle, createdAt) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
+selectMessages: SELECT * FROM message WHERE conversationId = ? ORDER BY createdAt;
+selectAll: SELECT * FROM conversation ORDER BY createdAt DESC;
+insertConversation: INSERT INTO conversation(id, title, settingsJson, createdAt) VALUES(?, ?, ?, ?);
+deleteConversation: DELETE FROM conversation WHERE id = ?;
+deleteMessages: DELETE FROM message WHERE conversationId = ?;

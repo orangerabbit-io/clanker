@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.sqldelight)
 }
 
 kotlin {
@@ -32,6 +33,14 @@ kotlin {
         }
         jvmTest.dependencies {
             implementation(libs.sqldelight.driver.jvm)
+        }
+    }
+}
+
+sqldelight {
+    databases {
+        create("ClankerDb") {
+            packageName.set("io.orangerabbit.clanker.db")
         }
     }
 }
