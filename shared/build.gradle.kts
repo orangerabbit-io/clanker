@@ -31,6 +31,9 @@ kotlin {
             implementation(libs.kotlin.test)
             implementation(libs.ktor.client.mock)
         }
+        androidMain.dependencies {
+            implementation(libs.tink.android)
+        }
         jvmTest.dependencies {
             implementation(libs.sqldelight.driver.jvm)
         }

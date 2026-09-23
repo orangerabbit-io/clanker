@@ -23,6 +23,8 @@ coroutines = "1.10.2"
 agp = "9.1.1"
 activityCompose = "1.12.0"
 markdownRenderer = "0.39.2"
+# Tink: Android/JVM crypto primitive for Keystore-backed AEAD; 1.18.0 confirmed in reference project
+tink = "1.18.0"
 
 [libraries]
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
@@ -42,6 +44,7 @@ kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotl
 markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
 markdown-renderer-code = { module = "com.mikepenz:multiplatform-markdown-renderer-code", version.ref = "markdownRenderer" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "tink" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
