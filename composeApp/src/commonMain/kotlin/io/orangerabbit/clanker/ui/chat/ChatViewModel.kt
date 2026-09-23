@@ -42,9 +42,11 @@ import io.orangerabbit.clanker.util.KeepAwake
  * [ConversationRepository] as they complete (user message on send; assistant
  * message on terminal result).
  *
- * Raw streamed responses: the client does not expose verbatim response JSON, so
- * `rawJson` is persisted as null (Phase 1 best-effort; wire-faithful raw storage
- * of streamed responses lands with tool tasks that capture full responses).
+ * Raw streamed responses: [OpenRouterClient] accumulates the verbatim `data:`
+ * payload of every parsed chunk and returns it on the terminal [ChatResult];
+ * the assistant row persists it in the rawJson column so opaque wire fields
+ * (e.g. reasoning signatures) survive restart. Cancellation loses it (no
+ * result is available) — recorded with a comment at the persist call site.
  * Per-message cost is likewise only available in the live session — it is not a
  * persisted column, so reloaded messages render "cost unavailable".
  *
@@ -187,14 +189,19 @@ class ChatViewModel(
                 }
                 _state.update { s -> reduce(s, uiEvent) }
                 maybeFlagBudgetExhausted(result)
-                persistAssistantMessage()
+                // Wire-faithful persistence: ChatResult carries the verbatim
+                // `data:` payload of every parsed chunk (null when none were
+                // parsed, e.g. Failed or cancel-before-any-chunk).
+                persistAssistantMessage(rawJson = result.rawJson())
                 keepAwake.release()
             } catch (e: CancellationException) {
                 // cancel()/scope teardown mid-stream: finalize partial content without
                 // suspension, then propagate so the coroutine ends cleanly.
                 withContext(NonCancellable) {
                     _state.update { s -> reduce(s, ChatUiEvent.Interrupted(usage = null)) }
-                    persistAssistantMessage()
+                    // Cancellation surfaces before streamChat returns, so no
+                    // ChatResult (and thus no rawJson) is available here.
+                    persistAssistantMessage(rawJson = null)
                     keepAwake.release()
                 }
                 throw e
@@ -230,7 +237,7 @@ class ChatViewModel(
     }
 
     /** Persists the trailing assistant message; best-effort (failure surfaces as banner). */
-    private suspend fun persistAssistantMessage() {
+    private suspend fun persistAssistantMessage(rawJson: String?) {
         val message = _state.value.messages.lastOrNull { it.role == ROLE_ASSISTANT } ?: return
         try {
             repository.appendMessage(
@@ -240,12 +247,19 @@ class ChatViewModel(
                 toolCallsJson = null,
                 reasoningJson = message.reasoning.takeIf { it.isNotEmpty() }
                     ?.let { json.encodeToString(ReasoningList, it) },
-                rawJson = null,
+                rawJson = rawJson,
                 lifecycle = message.lifecycle.name,
             )
         } catch (e: Exception) {
             _state.update { it.copy(error = "Failed to save message: ${e.message ?: "unknown error"}") }
         }
+    }
+
+    /** Verbatim chunk payload from the terminal result (Failed → none). */
+    private fun ChatResult.rawJson(): String? = when (this) {
+        is ChatResult.Completed -> rawJson
+        is ChatResult.Interrupted -> rawJson
+        is ChatResult.Failed -> null
     }
 
     private fun UiMessage.toChatMessage(): ChatMessage? = when (role) {

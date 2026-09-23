@@ -55,6 +55,10 @@ class OpenRouterClient(
      *  - [ChatResult.Interrupted] when the transport fails mid-stream; content
      *    already emitted via [onEvent] is never lost or re-emitted.
      *  - [ChatResult.Failed] on non-2xx HTTP responses.
+     *
+     * Completed and Interrupted also carry [ChatResult.rawJson]: the verbatim
+     * `data:` payload of every parsed chunk, joined with `\n` in arrival
+     * order, so persisted messages stay wire-faithful across restarts.
      * The API key provider is invoked exactly once per call.
      */
     suspend fun streamChat(req: ChatRequest, onEvent: (StreamEvent) -> Unit): ChatResult {
@@ -81,16 +85,20 @@ class OpenRouterClient(
                 }
                 val channel = response.bodyAsChannel()
                 val reader = SseReader(channel)
+                val rawChunks = mutableListOf<String>()
                 return@execute try {
-                    if (reader.events(recording(onEvent))) {
-                        ChatResult.Completed(lastUsage)
+                    val done = reader.events(recording(onEvent)) { rawChunks += it }
+                    val rawJson = rawChunks.joinToString("\n").takeIf { it.isNotEmpty() }
+                    if (done) {
+                        ChatResult.Completed(lastUsage, rawJson)
                     } else {
-                        ChatResult.Interrupted(lastUsage)
+                        ChatResult.Interrupted(lastUsage, rawJson)
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    ChatResult.Interrupted(lastUsage)
+                    // Chunks parsed before the failure still round-trip.
+                    ChatResult.Interrupted(lastUsage, rawChunks.joinToString("\n").takeIf { it.isNotEmpty() })
                 }
             }
         } catch (e: CancellationException) {

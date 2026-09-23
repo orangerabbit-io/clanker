@@ -59,8 +59,9 @@ data class Source(
 
 /** Terminal outcome of a [OpenRouterClient.streamChat] call. */
 sealed interface ChatResult {
-    data class Completed(val usage: Usage?) : ChatResult
-    data class Interrupted(val usage: Usage?) : ChatResult
+    /** Verbatim `data:` payloads of every parsed chunk, joined with `\n` in arrival order (null when none were parsed). */
+    data class Completed(val usage: Usage?, val rawJson: String? = null) : ChatResult
+    data class Interrupted(val usage: Usage?, val rawJson: String? = null) : ChatResult
     data class Failed(val message: String) : ChatResult
 }
 

@@ -105,6 +105,64 @@ class OpenRouterClientTest {
         )
     }
 
+    /**
+     * Verifies rawJson capture: ChatResult.Completed.rawJson carries the
+     * verbatim `data:` payloads of every parsed chunk, joined with `\n` in
+     * arrival order — byte-for-byte, no re-serialization.
+     */
+    @Test
+    fun happyPathCapturesRawChunkPayloadsVerbatim() = runTest {
+        val firstChunk = """{"id":"chatcmpl-1","model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"content":"Hel"}}]}"""
+        val secondChunk = """{"choices":[{"delta":{"content":"lo"}}]}"""
+        val usageChunk = """{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"total_tokens":10,"cost":0.0012}}"""
+        val fixture = listOf(
+            "data: $firstChunk",
+            "",
+            "data: $secondChunk",
+            "",
+            "data: $usageChunk",
+            "",
+            "data: [DONE]",
+            "",
+        ).joinToString("\n")
+
+        val engine = MockEngine { _ ->
+            respond(fixture, HttpStatusCode.OK, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        val events = mutableListOf<StreamEvent>()
+        val result = client.streamChat(request, onEvent = { events.add(it) })
+
+        assertTrue(result is ChatResult.Completed, "must complete; got $result")
+        assertEquals(
+            listOf(firstChunk, secondChunk, usageChunk).joinToString("\n"),
+            result.rawJson,
+            "rawJson must contain every chunk payload verbatim, joined with \\n in order",
+        )
+    }
+
+    /**
+     * Verifies rawJson on interruption: the payloads of chunks parsed before
+     * the failure are preserved on ChatResult.Interrupted.rawJson.
+     */
+    @Test
+    fun interruptionCarriesPartialRawJson() = runTest {
+        val partialChunk = """{"choices":[{"delta":{"content":"partial"}}]}"""
+        val fixture = "data: $partialChunk\n\ndata: NOT-JSON\n\n"
+
+        val engine = MockEngine { _ ->
+            respond(fixture, HttpStatusCode.OK, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        val events = mutableListOf<StreamEvent>()
+        val result = client.streamChat(request, onEvent = { events.add(it) })
+
+        assertTrue(result is ChatResult.Interrupted, "mid-stream failure must yield Interrupted; got $result")
+        assertEquals(partialChunk, result.rawJson, "rawJson must carry the payload parsed before the failure")
+    }
+
     // ── HTTP errors → Failed ──────────────────────────────────────────────
 
     /** Verifies non-2xx responses map to ChatResult.Failed with a descriptive message. */
@@ -483,7 +541,7 @@ class OpenRouterClientTest {
         val reader = SseReader(readLine = { lines.getOrNull(idx++) })
 
         val events = mutableListOf<StreamEvent>()
-        val done = reader.events { events.add(it) }
+        val done = reader.events(onEvent = { events.add(it) })
 
         assertTrue(done, "[DONE] sentinel must terminate the stream with done=true")
         assertEquals(listOf("ok"), events.filterIsInstance<StreamEvent.Content>().map { it.text })
@@ -499,7 +557,7 @@ class OpenRouterClientTest {
         val reader = SseReader(readLine = { lines.getOrNull(idx++) })
 
         val events = mutableListOf<StreamEvent>()
-        val done = reader.events { events.add(it) }
+        val done = reader.events(onEvent = { events.add(it) })
 
         assertEquals(false, done, "EOF without [DONE] must report done=false")
         assertEquals(listOf("half"), events.filterIsInstance<StreamEvent.Content>().map { it.text })

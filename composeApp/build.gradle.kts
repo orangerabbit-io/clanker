@@ -59,6 +59,13 @@ kotlin {
             // Production SQLite driver for the app database (Task 8 wiring).
             implementation(libs.sqldelight.android.driver)
         }
+        // ChatViewModel persistence plumbing tests (rawJson from ChatResult → repository).
+        jvmTest.dependencies {
+            implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.ktor.client.mock)
+            implementation(libs.sqldelight.driver.jvm)
+        }
         // Darwin engine required by MainViewController.kt (iOS only).
         // iosMain shared source set is not present in this KMP config; add dependency
         // to each iOS target's main source set individually.
