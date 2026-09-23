@@ -107,7 +107,7 @@ The message model never flattens provider-specific blocks — adding an API surf
 Open-source repo scaffold; no store, no payments.
 
 1. App scaffold: KMP project, Compose shell, navigation, theming; Nix flake devShell; CI (build + tests).
-2. OAuth PKCE connect: open `openrouter.ai/auth` with S256 challenge, exchange code for user-controlled key, store encrypted. Spike first (see §6): callback handling on mobile (custom scheme vs universal links vs localhost).
+2. OAuth PKCE connect: open `openrouter.ai/auth` with S256 challenge, exchange code for user-controlled key, store encrypted. Spike first (see §9): callback handling on mobile (custom scheme vs universal links vs localhost).
 3. Streaming chat: conversation list, model picker (catalog API), markdown rendering, streaming bubbles, reasoning display, per-response cost display.
 4. Server tools: `web_search`, `web_fetch`, `datetime` — per-chat toggles, sources UI for search results, capped `max_results`.
 5. Persistence: SQLDelight conversations/messages, wire-faithful; export/import JSON.
