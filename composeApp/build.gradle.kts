@@ -27,6 +27,9 @@ kotlin {
             isStatic = true
         }
     }
+    // JVM target compiles the common UI code locally (no Android SDK needed);
+    // verified via :composeApp:compileKotlinJvm — the standard CMP app-module shape.
+    jvm()
 
     sourceSets {
         commonMain.dependencies {
@@ -35,27 +38,41 @@ kotlin {
             implementation(compose.foundation)
             implementation(compose.material3)
             implementation(compose.components.resources)
+            // HttpClient is part of the App/ConnectFlow/ChatViewModel signatures; shared's
+            // implementation dep does not leak, so declare ktor-client-core explicitly.
+            implementation(libs.ktor.client.core)
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
-            // Markdown renderer – resolution requires Android SDK; verified coordinates against
-            // mikepenz/multiplatform-markdown-renderer on GitHub. Uncomment once first Android
-            // build confirms resolution.
-            // implementation(libs.markdown.renderer.m3)
-            // implementation(libs.markdown.renderer.code)
+            implementation(libs.kotlinx.coroutines.core)
+            // ChatViewModel serializes ReasoningBlocks for persistence.
+            implementation(libs.kotlinx.serialization.json)
+            implementation(compose.materialIconsExtended)
+            // Markdown renderer (Task 8 Step 4): multiplatform-markdown-renderer-m3
+            // + code highlighting; must resolve on common/jvm targets.
+            implementation(libs.markdown.renderer.m3)
+            implementation(libs.markdown.renderer.code)
         }
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation(libs.ktor.client.okhttp)
+            // Production SQLite driver for the app database (Task 8 wiring).
+            implementation(libs.sqldelight.android.driver)
         }
         // Darwin engine required by MainViewController.kt (iOS only).
         // iosMain shared source set is not present in this KMP config; add dependency
         // to each iOS target's main source set individually.
         val iosArm64Main by getting {
-            dependencies { implementation(libs.ktor.client.darwin) }
+            dependencies {
+                implementation(libs.ktor.client.darwin)
+                implementation(libs.sqldelight.native.driver)
+            }
         }
         val iosSimulatorArm64Main by getting {
-            dependencies { implementation(libs.ktor.client.darwin) }
+            dependencies {
+                implementation(libs.ktor.client.darwin)
+                implementation(libs.sqldelight.native.driver)
+            }
         }
     }
 }
