@@ -169,7 +169,30 @@ private fun requestBody(req: ChatRequest): JsonObject = buildJsonObject {
     put("model", req.model)
     put("stream", true)
     put("messages", JsonArray(req.messages.map { it.wireJson() }))
-    req.maxToolCalls?.let { put("max_tool_calls", it) }
+    // Docs-verified (OpenRouter API reference, stop_server_tools_when):
+    // [{"step_count":5,"type":"step_count_is"},{"max_cost_in_dollars":0.5,"type":"max_cost"}]
+    // OR-logic stop conditions; when set they override max_tool_calls entirely,
+    // so max_tool_calls is omitted. Emitted only when a spend cap is present —
+    // a step-count-only request keeps the plain max_tool_calls field.
+    if (req.spendCapUsd != null) {
+        val stopConditions = buildList {
+            req.spendCapUsd?.let { cap ->
+                add(buildJsonObject {
+                    put("type", "max_cost")
+                    put("max_cost_in_dollars", cap)
+                })
+            }
+            req.maxToolCalls?.let { steps ->
+                add(buildJsonObject {
+                    put("type", "step_count_is")
+                    put("step_count", steps)
+                })
+            }
+        }
+        put("stop_server_tools_when", JsonArray(stopConditions))
+    } else {
+        req.maxToolCalls?.let { put("max_tool_calls", it) }
+    }
     if (req.tools.isNotEmpty()) {
         put(
             "tools",

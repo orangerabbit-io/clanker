@@ -324,6 +324,55 @@ class OpenRouterClientTest {
         assertNull(body["spend_cap_usd"], "fields outside the request DTO must stay absent")
     }
 
+    /**
+     * Task 10 Step 2: `spendCapUsd` must serialize as the docs-verified
+     * `stop_server_tools_when` conditions (max_cost + step_count_is), which
+     * override `max_tool_calls` entirely.
+     */
+    @Test
+    fun spendCapUsdProducesStopServerToolsWhenConditions() = runTest {
+        var capturedBody: String? = null
+        val engine = bodyCapturingEngine(fixture = "data: [DONE]\n\n", onBody = { capturedBody = it })
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        client.streamChat(
+            ChatRequest(
+                model = "openai/gpt-4o-mini",
+                messages = listOf(UserMessage("Hi")),
+                maxToolCalls = 10,
+                spendCapUsd = 0.25,
+            ),
+            onEvent = {},
+        )
+
+        val body = bodyJson.parseToJsonElement(capturedBody ?: error("body must be captured")).jsonObject
+        assertEquals(
+            bodyJson.parseToJsonElement(
+                """[{"type":"max_cost","max_cost_in_dollars":0.25},{"type":"step_count_is","step_count":10}]""",
+            ),
+            body["stop_server_tools_when"],
+            "spend cap + step count must land as the docs-verified stop conditions",
+        )
+        assertNull(body["max_tool_calls"], "stop_server_tools_when overrides max_tool_calls")
+    }
+
+    /** Without a spend cap the legacy body stays: max_tool_calls, no stop conditions. */
+    @Test
+    fun withoutSpendCapNoStopConditionsAreSent() = runTest {
+        var capturedBody: String? = null
+        val engine = bodyCapturingEngine(fixture = "data: [DONE]\n\n", onBody = { capturedBody = it })
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        client.streamChat(
+            ChatRequest(model = "openai/gpt-4o-mini", messages = listOf(UserMessage("Hi")), maxToolCalls = 3),
+            onEvent = {},
+        )
+
+        val body = bodyJson.parseToJsonElement(capturedBody ?: error("body must be captured")).jsonObject
+        assertEquals(JsonPrimitive(3), body["max_tool_calls"])
+        assertNull(body["stop_server_tools_when"], "no stop conditions without a spend cap")
+    }
+
     /** AssistantMessage.toolCalls must map to the OpenAI `tool_calls` wire array. */
     @Test
     fun assistantToolCallsAreWiredAsToolCallsArray() = runTest {

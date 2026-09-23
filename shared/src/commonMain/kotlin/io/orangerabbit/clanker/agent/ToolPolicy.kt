@@ -10,14 +10,34 @@ enum class ServerTool {
 }
 
 /**
+ * Spend caps for server-tool requests. [perRequestUsd] is sent to OpenRouter
+ * as a docs-verified `stop_server_tools_when` max_cost condition and enforced
+ * client-side as the budget-exhausted terminal state when terminal usage cost
+ * exceeds it. [perDayUsd] is persisted for later enforcement (Phase 1:
+ * per-request cap only; per-day needs local day tracking).
+ */
+data class SpendLimits(
+    val perRequestUsd: Double = 0.25,
+    val perDayUsd: Double = 2.0,
+)
+
+/**
  * Per-chat tool preferences. [maxToolCalls] caps how many server tool calls
- * OpenRouter may make per request (top-level `max_tool_calls` wire field);
- * [searchMaxResults] feeds the web_search `max_results` parameter.
+ * OpenRouter may make per request; when a spend cap is set it is combined
+ * into `stop_server_tools_when` (which overrides `max_tool_calls`).
+ * [guardrailsEnabled] is the client-side guardrail posture: OpenRouter
+ * defines guardrails (prompt-injection detection, PII/secret redaction) only
+ * as account/workspace defaults via its management API — there is no
+ * chat-completions request-level field (docs-verified), so nothing is sent on
+ * the wire; enforcement happens account-level and the flag is persisted so a
+ * future request-level flag can adopt it.
  */
 data class ChatSettings(
     val tools: Set<ServerTool> = emptySet(),
     val maxToolCalls: Int = 10,
     val searchMaxResults: Int = 5,
+    val spendLimits: SpendLimits = SpendLimits(),
+    val guardrailsEnabled: Boolean = true,
 )
 
 /**

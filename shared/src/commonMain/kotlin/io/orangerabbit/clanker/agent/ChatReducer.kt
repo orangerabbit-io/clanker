@@ -30,6 +30,13 @@ data class ChatUiState(
     val messages: List<UiMessage> = emptyList(),
     val running: Boolean = false,
     val error: String? = null,
+
+    /**
+     * Budget-exhausted terminal state (Task 10): accumulated cost exceeded
+     * the per-request cap. Terminal for the session — the ViewModel's send()
+     * refuses further sends; no automatic retry.
+     */
+    val budgetExhausted: Boolean = false,
 )
 
 /**
@@ -49,6 +56,13 @@ sealed interface ChatUiEvent {
     data class Done(val usage: Usage?) : ChatUiEvent
     data class Interrupted(val usage: Usage?) : ChatUiEvent
     data class Failed(val message: String) : ChatUiEvent
+
+    /**
+     * Terminal budget-exhausted marker (Task 10): emitted by the ViewModel
+     * after a terminal event whose usage cost exceeded the per-request cap.
+     * Sets the "spend cap reached" banner and [ChatUiState.budgetExhausted].
+     */
+    data object SpendCapReached : ChatUiEvent
 }
 
 private const val REASONING_TYPE = "reasoning"
@@ -58,6 +72,8 @@ private const val REASONING_TYPE = "reasoning"
  * in-progress (STREAMING) assistant bubble; the terminal event finalizes its
  * lifecycle and stops the running indicator. Tool-call rows (Task 9) will
  * render collapsed under the assistant bubble via [UiMessage.toolCalls].
+ * [ChatUiEvent.SpendCapReached] (Task 10) lands the budget-exhausted terminal
+ * state: banner "spend cap reached", sticky `budgetExhausted`, no retry.
  */
 fun reduce(state: ChatUiState, event: ChatUiEvent): ChatUiState = when (event) {
     is ChatUiEvent.Content -> state.streamAssistant { it.copy(content = it.content + event.text) }
@@ -82,7 +98,15 @@ fun reduce(state: ChatUiState, event: ChatUiEvent): ChatUiState = when (event) {
             error = "Stream interrupted.",
         )
     is ChatUiEvent.Failed -> state.finalizeAssistant(MsgLifecycle.INTERRUPTED, cost = null, serverToolUse = null, error = event.message)
+    is ChatUiEvent.SpendCapReached -> state.finalizeAssistant(
+        MsgLifecycle.INTERRUPTED,
+        cost = null,
+        serverToolUse = null,
+        error = SPEND_CAP_BANNER,
+    ).copy(budgetExhausted = true)
 }
+
+private const val SPEND_CAP_BANNER = "spend cap reached"
 
 /** Appends to the trailing STREAMING assistant message, creating it on first delta. */
 private fun ChatUiState.streamAssistant(transform: (UiMessage) -> UiMessage): ChatUiState {
@@ -108,7 +132,10 @@ private fun ChatUiState.finalizeAssistant(
     if (last != null && last.role == "assistant" && last.lifecycle == MsgLifecycle.STREAMING) {
         messages[messages.lastIndex] = last.copy(lifecycle = lifecycle, cost = cost, serverToolUse = serverToolUse)
     }
-    return copy(messages = messages, running = false, error = error ?: stateErrorOrNull(this, error))
+    // Budget-exhausted terminal state is sticky (Task 10): once set, later
+    // terminal events never overwrite the "spend cap reached" banner.
+    val nextError = if (budgetExhausted) this.error ?: error else error ?: stateErrorOrNull(this, error)
+    return copy(messages = messages, running = false, error = nextError)
 }
 
 /** Keep an existing error when a terminal event carries none (only Failed/Interrupted set one). */

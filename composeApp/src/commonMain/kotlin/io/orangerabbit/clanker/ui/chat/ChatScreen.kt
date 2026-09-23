@@ -109,10 +109,18 @@ fun ChatScreen(
                     },
                 )
                 if (toolsExpanded) {
-                    ToolToggles(
-                        settings = toolSettings,
-                        onToggle = { viewModel.toggleTool(it) },
-                    )
+                    Column {
+                        ToolToggles(
+                            settings = toolSettings,
+                            onToggle = { viewModel.toggleTool(it) },
+                        )
+                        SpendControls(
+                            settings = toolSettings,
+                            onPerRequestCapChanged = { viewModel.updatePerRequestCap(it) },
+                            onPerDayCapChanged = { viewModel.updatePerDayCap(it) },
+                            onGuardrailsChanged = { viewModel.setGuardrails(it) },
+                        )
+                    }
                 }
             }
         },
@@ -177,7 +185,7 @@ fun ChatScreen(
                             viewModel.send(input)
                             input = ""
                         },
-                        enabled = input.isNotBlank(),
+                        enabled = input.isNotBlank() && !state.budgetExhausted,
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                     }
@@ -214,6 +222,66 @@ private fun ToolToggles(
             }
         }
     }
+}
+
+/**
+ * Spend caps and guardrail posture (Task 10). Caps are entered as plain USD
+ * numbers; valid non-negative edits commit immediately and persist via the
+ * conversation's settingsJson. Guardrails is the client-side posture toggle
+ * (OpenRouter has no chat-completions request-level guardrail field).
+ */
+@Composable
+private fun SpendControls(
+    settings: ChatSettings,
+    onPerRequestCapChanged: (Double) -> Unit,
+    onPerDayCapChanged: (Double) -> Unit,
+    onGuardrailsChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var perRequest by remember(settings.spendLimits.perRequestUsd) {
+        mutableStateOf(settings.spendLimits.perRequestUsd.toString())
+    }
+    var perDay by remember(settings.spendLimits.perDayUsd) {
+        mutableStateOf(settings.spendLimits.perDayUsd.toString())
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = perRequest,
+            onValueChange = {
+                perRequest = it
+                commitCap(it, onPerRequestCapChanged)
+            },
+            label = { Text("Per-request $") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = perDay,
+            onValueChange = {
+                perDay = it
+                commitCap(it, onPerDayCapChanged)
+            },
+            label = { Text("Per-day $") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Guardrails", style = MaterialTheme.typography.labelSmall)
+            Switch(checked = settings.guardrailsEnabled, onCheckedChange = onGuardrailsChanged)
+        }
+    }
+}
+
+/** Commits [raw] as a USD cap when it parses to a non-negative number. */
+private fun commitCap(raw: String, onCapChanged: (Double) -> Unit) {
+    val parsed = raw.toDoubleOrNull()
+    if (parsed != null && parsed >= 0) onCapChanged(parsed)
 }
 
 private val TOOL_LABELS = mapOf(

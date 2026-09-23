@@ -93,6 +93,26 @@ class ChatViewModel(
         } else {
             _toolSettings.value.tools + tool
         })
+        persistToolSettings(updated)
+    }
+
+    /** Updates the per-request spend cap (Task 10) and persists it. */
+    fun updatePerRequestCap(usd: Double) {
+        persistToolSettings(_toolSettings.value.copy(spendLimits = _toolSettings.value.spendLimits.copy(perRequestUsd = usd)))
+    }
+
+    /** Updates the per-day spend cap (Task 10) and persists it (Phase 1: persisted only). */
+    fun updatePerDayCap(usd: Double) {
+        persistToolSettings(_toolSettings.value.copy(spendLimits = _toolSettings.value.spendLimits.copy(perDayUsd = usd)))
+    }
+
+    /** Sets the client-side guardrail posture (Task 10) and persists it. */
+    fun setGuardrails(enabled: Boolean) {
+        persistToolSettings(_toolSettings.value.copy(guardrailsEnabled = enabled))
+    }
+
+    /** Persists [updated] per-chat preferences; failures surface as a banner. */
+    private fun persistToolSettings(updated: ChatSettings) {
         _toolSettings.value = updated
         scope.launch {
             try {
@@ -111,6 +131,7 @@ class ChatViewModel(
         val trimmed = text.trim()
         val current = _state.value
         if (trimmed.isEmpty() || current.running) return
+        if (current.budgetExhausted) return
         if (model.isBlank()) {
             _state.update { it.copy(error = "Select a default model in Settings first.") }
             return
@@ -145,6 +166,7 @@ class ChatViewModel(
                     messages = _state.value.messages.mapNotNull { it.toChatMessage() },
                     tools = ToolPolicy.toToolSpecs(_toolSettings.value),
                     maxToolCalls = _toolSettings.value.maxToolCalls,
+                    spendCapUsd = _toolSettings.value.spendLimits.perRequestUsd,
                 )
                 val result = client.streamChat(request) { event ->
                     when (event) {
@@ -164,6 +186,7 @@ class ChatViewModel(
                     is ChatResult.Failed -> ChatUiEvent.Failed(result.message)
                 }
                 _state.update { s -> reduce(s, uiEvent) }
+                maybeFlagBudgetExhausted(result)
                 persistAssistantMessage()
                 keepAwake.release()
             } catch (e: CancellationException) {
@@ -179,6 +202,24 @@ class ChatViewModel(
                 _state.update { it.copy(running = false, error = e.message ?: "Unknown error") }
                 keepAwake.release()
             }
+        }
+    }
+
+    /**
+     * Task 10: when the terminal usage cost exceeded the per-request cap,
+     * land the budget-exhausted terminal state (banner + sticky flag). The
+     * terminal event has already finalized the message, so this only sets
+     * state-level flags.
+     */
+    private fun maybeFlagBudgetExhausted(result: ChatResult) {
+        val cost = when (result) {
+            is ChatResult.Completed -> result.usage?.totalCost
+            is ChatResult.Interrupted -> result.usage?.totalCost
+            is ChatResult.Failed -> null
+        }
+        val cap = _toolSettings.value.spendLimits.perRequestUsd
+        if (cap > 0 && cost != null && cost > cap) {
+            _state.update { s -> reduce(s, ChatUiEvent.SpendCapReached) }
         }
     }
 

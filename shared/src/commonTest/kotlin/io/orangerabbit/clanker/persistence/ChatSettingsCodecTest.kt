@@ -2,6 +2,7 @@ package io.orangerabbit.clanker.persistence
 
 import io.orangerabbit.clanker.agent.ChatSettings
 import io.orangerabbit.clanker.agent.ServerTool
+import io.orangerabbit.clanker.agent.SpendLimits
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -32,6 +33,30 @@ class ChatSettingsCodecTest {
 
         assertEquals("anthropic/claude-4.5", decoded.model)
         assertEquals(settings, decoded.settings)
+    }
+
+    @Test
+    fun spendLimitsAndGuardrailsRoundTrip() {
+        val settings = ChatSettings(
+            spendLimits = SpendLimits(perRequestUsd = 0.5, perDayUsd = 5.0),
+            guardrailsEnabled = false,
+        )
+        val encoded = ChatSettingsCodec.encode(model = "m", settings = settings)
+        val decoded = ChatSettingsCodec.decode(encoded)
+
+        assertEquals("m", decoded.model)
+        assertEquals(settings, decoded.settings)
+    }
+
+    /** Task 9-era JSON without the Task 10 fields must decode to SpendLimits defaults. */
+    @Test
+    fun shapeWithoutSpendFieldsDecodesToDefaults() {
+        val decoded = ChatSettingsCodec.decode(
+            """{"model":"m","tools":[],"maxToolCalls":10,"searchMaxResults":5}""",
+        )
+
+        assertEquals(SpendLimits(), decoded.settings.spendLimits)
+        assertTrue(decoded.settings.guardrailsEnabled, "guardrails posture is default-on")
     }
 
     @Test

@@ -2,6 +2,7 @@ package io.orangerabbit.clanker.persistence
 
 import io.orangerabbit.clanker.agent.ChatSettings
 import io.orangerabbit.clanker.agent.ServerTool
+import io.orangerabbit.clanker.agent.SpendLimits
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -14,8 +15,10 @@ data class DecodedChatSettings(
 /**
  * settingsJson codec for conversations. Two shapes exist:
  *  - legacy (Task 8): the raw string is the bare model id;
- *  - Task 9+: JSON `{"model":..., "tools":[...], "maxToolCalls":..., "searchMaxResults":...}`.
- * Decoding never throws: malformed JSON falls back to defaults.
+ *  - Task 9+: JSON `{"model":..., "tools":[...], "maxToolCalls":...}`;
+ *  - Task 10+: adds `perRequestUsd`, `perDayUsd`, `guardrailsEnabled`.
+ * Decoding never throws: malformed JSON falls back to defaults, and JSON from
+ * earlier shapes decodes missing fields to [ChatSettings] defaults.
  */
 object ChatSettingsCodec {
     private val json = Json { ignoreUnknownKeys = true }
@@ -36,6 +39,11 @@ object ChatSettingsCodec {
                 tools = stored.tools,
                 maxToolCalls = stored.maxToolCalls ?: ChatSettings().maxToolCalls,
                 searchMaxResults = stored.searchMaxResults ?: ChatSettings().searchMaxResults,
+                spendLimits = SpendLimits(
+                    perRequestUsd = stored.perRequestUsd ?: ChatSettings().spendLimits.perRequestUsd,
+                    perDayUsd = stored.perDayUsd ?: ChatSettings().spendLimits.perDayUsd,
+                ),
+                guardrailsEnabled = stored.guardrailsEnabled ?: ChatSettings().guardrailsEnabled,
             ),
         )
     }
@@ -47,6 +55,9 @@ object ChatSettingsCodec {
                 tools = settings.tools,
                 maxToolCalls = settings.maxToolCalls,
                 searchMaxResults = settings.searchMaxResults,
+                perRequestUsd = settings.spendLimits.perRequestUsd,
+                perDayUsd = settings.spendLimits.perDayUsd,
+                guardrailsEnabled = settings.guardrailsEnabled,
             ),
         )
 }
@@ -58,4 +69,7 @@ private data class StoredChatSettings(
     val tools: Set<ServerTool> = emptySet(),
     val maxToolCalls: Int? = null,
     val searchMaxResults: Int? = null,
+    val perRequestUsd: Double? = null,
+    val perDayUsd: Double? = null,
+    val guardrailsEnabled: Boolean? = null,
 )
