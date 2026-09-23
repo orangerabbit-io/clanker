@@ -61,7 +61,9 @@ jobs:
         run: |
           VER="${{ steps.semrel.outputs.new_release_version }}"
           APK_NAME="clanker-v${VER}.apk"
-          cp composeApp/build/outputs/apk/release/app-release.apk "${APK_NAME}"
+          # AGP 9.1.1 places packaged APKs under build/intermediates/apk (SingleArtifact.APK is
+          # INTERMEDIATES-category); build/outputs/apk/release holds only the IDE redirect.txt.
+          cp composeApp/build/intermediates/apk/release/app-release.apk "${APK_NAME}"
           gh release upload \
             "${{ steps.semrel.outputs.new_release_tag }}" \
             "${APK_NAME}" \
