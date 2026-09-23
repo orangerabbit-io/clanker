@@ -40,10 +40,12 @@ Notes:
 
 ## Maintainers
 
-Release signing is driven by the `CLANKER_KEYSTORE`,
-`CLANKER_KEYSTORE_PASSWORD`, `CLANKER_KEY_ALIAS`, and `CLANKER_KEY_PASSWORD`
-repository secrets (`CLANKER_KEYSTORE` is the base64-encoded JKS). The same
-signing key must be used for every release, or Obtainium users cannot update.
+Release signing requires four repository secrets: `ANDROID_KEYSTORE_B64`
+(the base64-encoded release JKS), `CLANKER_KEYSTORE_PASSWORD`,
+`CLANKER_KEY_ALIAS`, and `CLANKER_KEY_PASSWORD`. CI decodes the JKS to a temp
+file and points the build at it via the `CLANKER_KEYSTORE` environment
+variable. The same signing key must be used for every release, or Obtainium
+users cannot update.
 
 Post-release, run the on-device checklist in
 [docs/phase1-smoke.md](docs/phase1-smoke.md).
