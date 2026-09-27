@@ -183,6 +183,24 @@ class OpenRouterClientTest {
         )
     }
 
+    /** Verifies the error response body is included so 404-style model rejections are diagnosable. */
+    @Test
+    fun httpErrorBodyIncludedInFailedMessage() = runTest {
+        val errorBody = """{"error":{"message":"No endpoints found for fable-5"}}"""
+        val engine = MockEngine { _ ->
+            respond(errorBody, HttpStatusCode.NotFound)
+        }
+        val client = OpenRouterClient(apiKeyProvider = { apiKey }, engine = engine)
+
+        val result = client.streamChat(request, onEvent = { })
+
+        assertTrue(result is ChatResult.Failed, "HTTP error must yield Failed; got $result")
+        assertTrue(
+            (result as ChatResult.Failed).message.contains("No endpoints found"),
+            "Failed.message must include the response body; got '${(result as ChatResult.Failed).message}'",
+        )
+    }
+
     // ── Step 2: partial failure (Review Focus #1) ─────────────────────────────
 
     /**

@@ -79,8 +79,10 @@ class OpenRouterClient(
                 setBody(requestBody(req).toString())
             }.execute { response ->
                 if (!response.status.isSuccess()) {
+                    val body = runCatching { response.bodyAsText() }.getOrNull()
+                    val detail = if (body.isNullOrBlank()) "" else ": ${body.take(2000)}"
                     return@execute ChatResult.Failed(
-                        "HTTP ${response.status.value}: ${response.status.description}",
+                        "HTTP ${response.status.value}: ${response.status.description}$detail",
                     )
                 }
                 val channel = response.bodyAsChannel()
