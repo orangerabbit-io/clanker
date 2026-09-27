@@ -28,6 +28,10 @@ tink = "1.18.0"
 
 [libraries]
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+# Loopback HTTP server engine for the OAuth localhost-redirect callback capture
+# (OpenRouter rejects custom schemes like clanker://oauth; docs sanction
+# http://127.0.0.1:<port>/ callbacks on any port). CIO engine only — Android+JVM.
+ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
 ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
 ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }

@@ -32,6 +32,18 @@ kotlin {
             implementation(libs.ktor.client.mock)
             implementation(libs.kotlinx.coroutines.test)
         }
+        // jvmAndroidMain: sources shared by the Android and JVM targets but not
+        // compilable on iOS. LoopbackRedirectServer (OAuth loopback callback)
+        // needs the JVM Ktor server CIO engine; iOS keeps the headless paste
+        // flow and must never see these JVM-only types.
+        val jvmAndroidMain by creating {
+            dependsOn(commonMain.get())
+            dependencies {
+                implementation(libs.ktor.server.cio)
+            }
+        }
+        androidMain.get().dependsOn(jvmAndroidMain)
+        jvmMain.get().dependsOn(jvmAndroidMain)
         androidMain.dependencies {
             implementation(libs.tink.android)
         }
