@@ -19,6 +19,11 @@ kotlin {
     iosSimulatorArm64()
     jvm()
 
+    // Manual source-set customization (jvmAndroidMain) disables the default
+    // hierarchy template; re-apply it so iosMain->commonMain and target->iosMain
+    // edges exist again (broke in 8818dc9: iOS actuals went missing).
+    applyDefaultHierarchyTemplate()
+
     sourceSets {
         commonMain.dependencies {
             implementation(libs.ktor.client.core)
