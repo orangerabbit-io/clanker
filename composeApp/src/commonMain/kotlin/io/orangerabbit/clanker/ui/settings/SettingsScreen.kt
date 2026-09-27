@@ -16,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -131,8 +132,24 @@ private fun ModelPicker(
         }
         if (expanded) {
             Spacer(modifier = Modifier.height(4.dp))
+            // 500+ models: a filter box is the only usable navigation.
+            var filter by remember { mutableStateOf("") }
+            OutlinedTextField(
+                value = filter,
+                onValueChange = { filter = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = { Text("Filter models…") },
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            val query = filter.trim()
+            val visible = if (query.isEmpty()) {
+                models
+            } else {
+                models.filter { it.id.contains(query, ignoreCase = true) || it.name.contains(query, ignoreCase = true) }
+            }
             LazyColumn(modifier = Modifier.height(300.dp)) {
-                items(models) { model ->
+                items(visible) { model ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
