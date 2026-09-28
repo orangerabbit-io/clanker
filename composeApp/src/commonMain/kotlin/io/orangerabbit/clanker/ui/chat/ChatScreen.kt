@@ -84,10 +84,12 @@ fun ChatScreen(
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    // Auto-scroll as bubbles appear and deltas accumulate.
+    // Auto-scroll as bubbles appear and deltas accumulate. scrollOffset clamps
+    // to the item's end, so a long streaming bubble stays pinned at its bottom
+    // (scrollToItem(index) alone pins the top and the view stops following).
     LaunchedEffect(state.messages.size, state.messages.lastOrNull()?.content?.length) {
         if (state.messages.isNotEmpty()) {
-            listState.scrollToItem(state.messages.size - 1)
+            listState.scrollToItem(state.messages.size - 1, Int.MAX_VALUE / 2)
         }
     }
 
