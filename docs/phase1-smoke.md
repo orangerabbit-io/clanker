@@ -17,15 +17,18 @@ its own conventional commit.
   - **adb**: enable USB debugging, then `adb install clanker-v<version>.apk`.
     For the corruption test in item 2, a **debug build** is required
     (`nix develop -c ./gradlew :composeApp:assembleDebug`, then
-    `adb install composeApp/build/outputs/apk/debug/app-debug.apk`) because
+    `adb install composeApp/build/outputs/apk/debug/composeApp-debug.apk`) because
     release builds are not `run-as`-inspectable.
 - **OpenRouter account with credits**, and access to the OpenRouter
   authorization screen (headless mode prints an authorization code) so the
-  app can exchange a PKCE authorization code for a key. Note: the paste
-  fallback accepts the **authorization code**, not a raw API key (or
-  complete the `clanker://oauth` deep-link flow instead).
+  app can exchange a PKCE authorization code for a key. Android/JVM connect
+  via the localhost loopback callback (browser auto-redirects); iOS and any
+  failure fallback use the paste field, which accepts the **authorization
+  code**, not a raw API key.
 - **iOS pass (optional second pass)**: macOS machine with Xcode and the
   simulator/device; same checklist items, results recorded in the same table.
+  Note: no Xcode shell exists in this tree yet (no macOS host to verify one);
+  iOS is compile-verified in CI, runnable build is deferred.
   Note for item 2 on iOS: secrets live in the OS Keychain, which cannot be
   corrupted from a shell — record the negative test as N/A there and rely on
   the fail-closed unit contract instead.

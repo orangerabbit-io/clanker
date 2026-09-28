@@ -22,11 +22,17 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.orangerabbit.clanker.persistence.Conversation
 import io.orangerabbit.clanker.persistence.ConversationRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * Conversation list (Task 8 Step 4): conversations flow from the repository,
@@ -41,8 +47,25 @@ fun ConversationListScreen(
     onNewChat: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    /** App's coroutine scope, injectable for tests; defaults to a composition-local scope. */
+    scope: CoroutineScope? = null,
 ) {
     val conversations by repository.conversations().collectAsState(initial = null)
+    val creationScope = scope ?: rememberCoroutineScope()
+    var newChatInFlight by remember { mutableStateOf(false) }
+
+    /** Launches [block] unless one is already in flight (double-tap guard). */
+    fun once(block: suspend () -> Unit) {
+        if (newChatInFlight) return
+        newChatInFlight = true
+        creationScope.launch {
+            try {
+                block()
+            } finally {
+                newChatInFlight = false
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -57,7 +80,7 @@ fun ConversationListScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onNewChat) {
+            ExtendedFloatingActionButton(onClick = { once { onNewChat() } }) {
                 Icon(Icons.Filled.Add, contentDescription = null)
                 Text("New chat")
             }

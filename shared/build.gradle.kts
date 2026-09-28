@@ -19,6 +19,11 @@ kotlin {
     iosSimulatorArm64()
     jvm()
 
+    // Manual source-set customization (jvmAndroidMain) disables the default
+    // hierarchy template; re-apply it so iosMain->commonMain and target->iosMain
+    // edges exist again (broke in 8818dc9: iOS actuals went missing).
+    applyDefaultHierarchyTemplate()
+
     sourceSets {
         commonMain.dependencies {
             implementation(libs.ktor.client.core)
@@ -32,6 +37,18 @@ kotlin {
             implementation(libs.ktor.client.mock)
             implementation(libs.kotlinx.coroutines.test)
         }
+        // jvmAndroidMain: sources shared by the Android and JVM targets but not
+        // compilable on iOS. LoopbackRedirectServer (OAuth loopback callback)
+        // needs the JVM Ktor server CIO engine; iOS keeps the headless paste
+        // flow and must never see these JVM-only types.
+        val jvmAndroidMain by creating {
+            dependsOn(commonMain.get())
+            dependencies {
+                implementation(libs.ktor.server.cio)
+            }
+        }
+        androidMain.get().dependsOn(jvmAndroidMain)
+        jvmMain.get().dependsOn(jvmAndroidMain)
         androidMain.dependencies {
             implementation(libs.tink.android)
         }

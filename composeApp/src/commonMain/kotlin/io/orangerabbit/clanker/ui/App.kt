@@ -1,6 +1,7 @@
 package io.orangerabbit.clanker.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -17,6 +18,7 @@ import io.orangerabbit.clanker.ui.settings.SettingsScreen
 import io.orangerabbit.clanker.ui.theme.ClankerTheme
 import io.orangerabbit.clanker.util.KeepAwake
 import io.orangerabbit.clanker.agent.ChatSettings
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Top-level navigation state: List → Chat(id) → Settings (Task 8 Step 4). */
@@ -57,12 +59,25 @@ fun App(
                 },
             )
         }
-        // Default model picked in Settings; kept in memory for Phase 1.
+        // Default model picked in Settings; persisted via the newest
+        // conversation's settingsJson so it survives restarts.
         var defaultModel by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(repository) {
+            defaultModel = try {
+                repository.conversations().first().firstOrNull()
+                    ?.let { ChatSettingsCodec.decode(it.settingsJson).model }
+            } catch (_: Exception) {
+                null
+            }
+        }
         var screen by remember { mutableStateOf<AppScreen>(AppScreen.List) }
         val scope = rememberCoroutineScope()
 
         val onBack: () -> Unit = { screen = AppScreen.List }
+
+        // System back navigates within the app instead of exiting (bug: back on
+        // Chat/Settings killed the app). List screen lets it fall through (exit).
+        PlatformBackHandler(enabled = screen != AppScreen.List) { onBack() }
 
         when (val current = screen) {
             AppScreen.List -> {
@@ -85,6 +100,7 @@ fun App(
                         }
                     },
                     onOpenSettings = { screen = AppScreen.Settings },
+                    scope = scope,
                 )
             }
             AppScreen.Settings -> SettingsScreen(
@@ -92,7 +108,23 @@ fun App(
                 httpClient = httpClient,
                 client = client,
                 defaultModel = defaultModel,
-                onModelSelected = { defaultModel = it },
+                onModelSelected = { model ->
+                    defaultModel = model
+                    // Also stamp the newest conversation so the choice persists.
+                    scope.launch {
+                        try {
+                            repository.conversations().first().firstOrNull()?.let { conv ->
+                                val decoded = ChatSettingsCodec.decode(conv.settingsJson)
+                                repository.updateConversationSettings(
+                                    conv.id,
+                                    ChatSettingsCodec.encode(model = model, settings = decoded.settings),
+                                )
+                            }
+                        } catch (_: Exception) {
+                            // In-memory choice still applies to new chats this session.
+                        }
+                    }
+                },
                 pendingOAuthCode = pendingOAuthCode,
                 onBack = onBack,
             )

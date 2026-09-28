@@ -34,6 +34,12 @@ jobs:
       - name: Run JVM tests
         run: ./gradlew :shared:jvmTest
 
+      - name: Compile release variant (pre-publish check)
+        # Catch Kotlin/compile failures before semantic-release publishes a
+        # tag, so a release can never land without its APK due to a build
+        # break (version-driven assembleRelease must run after semrel).
+        run: ./gradlew :composeApp:compileReleaseKotlinAndroid
+
       - name: semantic-release
         id: semrel
         uses: cycjimmy/semantic-release-action@v4

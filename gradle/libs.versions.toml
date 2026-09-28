@@ -9,7 +9,7 @@
 # coroutines:         brief pin 1.10.2 → used as-is (reference project confirms 1.10.2)
 # AGP:                brief pin 9.1.0  → bumped to 9.1.1 (patch; reference project uses same, pairs with Gradle 9.3.1)
 # activityCompose:    brief pin 1.12.0 → used as-is (cannot verify upstream from this host)
-# markdownRenderer:   brief pin 0.39.0 → bumped to 0.39.2 (patch; reference project uses same, no breaking changes)
+# markdownRenderer: 0.38.0 — MUST match CMP 1.9.x (0.39.x is built against Compose 1.10 and crashes at runtime: NoSuchMethodError Updater.init-impl in MarkdownSuccess)
 #
 # Gradle wrapper: 9.3.1 (required by AGP 9.x)
 
@@ -22,12 +22,16 @@ kotlinxSerialization = "1.9.0"
 coroutines = "1.10.2"
 agp = "9.1.1"
 activityCompose = "1.12.0"
-markdownRenderer = "0.39.2"
+markdownRenderer = "0.38.0"
 # Tink: Android/JVM crypto primitive for Keystore-backed AEAD; 1.18.0 confirmed in reference project
 tink = "1.18.0"
 
 [libraries]
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+# Loopback HTTP server engine for the OAuth localhost-redirect callback capture
+# (OpenRouter rejects custom schemes like clanker://oauth; docs sanction
+# http://127.0.0.1:<port>/ callbacks on any port). CIO engine only — Android+JVM.
+ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
 ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
 ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }

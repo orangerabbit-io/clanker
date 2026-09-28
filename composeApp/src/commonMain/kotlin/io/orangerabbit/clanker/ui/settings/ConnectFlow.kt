@@ -1,6 +1,7 @@
 package io.orangerabbit.clanker.ui.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -9,6 +10,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -16,29 +18,36 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import io.ktor.client.HttpClient
-import io.orangerabbit.clanker.network.authUrl
 import io.orangerabbit.clanker.network.exchangeKey
 import io.orangerabbit.clanker.network.pkcePair
 import io.orangerabbit.clanker.security.SecretStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 
 /**
  * Settings screen for connecting an OpenRouter API key via PKCE OAuth.
  *
- * Flow:
- *  1. "Authorize in Browser" opens the OpenRouter auth page with a `clanker://oauth` callback
- *     URL and the generated PKCE challenge.
- *  2. OpenRouter redirects to `clanker://oauth?code=<code>` — the OS routes the app to
- *     the foreground via the registered scheme (see AndroidManifest intent-filter / iOS URL
- *     scheme).  The user then pastes the code into the text field.
- *  3. The paste path **always works** as a fallback: open the auth URL without a scheme
- *     handler or just copy-paste the code shown on-screen by OpenRouter.
- *  4. Tapping "Connect" exchanges the code for an API key and stores it under
- *     `"openrouter_key"` in [secretStore].
+ * Flow (primary "Authorize in Browser" path):
+ *  1. Tapping the button opens the OpenRouter auth page.  On Android/JVM the
+ *     callback is `http://127.0.0.1:<port>/` served by a one-shot loopback
+ *     redirect server (OpenRouter only accepts https/localhost callbacks —
+ *     custom schemes are silently rejected); the code is captured automatically
+ *     when OpenRouter redirects back.  On iOS the headless URL is opened
+ *     (no `callback_url` — OpenRouter displays the code on screen) and the
+ *     user pastes it.
+ *  2. While waiting, a "Waiting for authorization…" state with a Cancel button
+ *     is shown; cancel shuts the loopback server down.
+ *  3. The paste path **always works** as a fallback: the code shown by
+ *     OpenRouter can be typed/pasted into the text field on any platform.
+ *  4. Tapping "Connect" (or an automatically captured code) exchanges the code
+ *     for an API key and stores it under `"openrouter_key"` in [secretStore].
  *
  * Fail-closed: if [secretStore] throws at any point the error is displayed and the screen
  * stays in the disconnected state.
@@ -52,6 +61,7 @@ fun ConnectFlow(
 ) {
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
+    val launcher = remember { OAuthCallbackLauncher() }
 
     // PKCE pair generated once per composition.  The pair stays stable across recompositions so
     // the verifier and the challenge used in the authorization URL remain consistent.
@@ -60,6 +70,8 @@ fun ConnectFlow(
     var codeInput by remember(initialCode) { mutableStateOf(initialCode) }
     var connected by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var waitingForAuth by remember { mutableStateOf(false) }
+    var authJob by remember { mutableStateOf<Job?>(null) }
 
     // Restore connected state from persisted key on first composition.
     // Fail-closed: if the storage layer throws, remain disconnected.
@@ -68,6 +80,35 @@ fun ConnectFlow(
             connected = secretStore.get("openrouter_key") != null
         } catch (_: Exception) {
             // storage unavailable — stay disconnected
+        }
+    }
+
+    val openUriSafely: (String) -> Unit = { url ->
+        try {
+            uriHandler.openUri(url)
+        } catch (_: Exception) {
+            // openUri is best-effort; if it fails the paste path still works
+        }
+    }
+
+    val connect: suspend (String) -> Unit = { code ->
+        try {
+            val key = exchangeKey(
+                code = code.trim(),
+                verifier = pkce.verifier,
+                httpClient = httpClient,
+            )
+            // put() overwrites any stale key so re-connect always stores
+            // the fresh key.  Fail-closed: if put throws (e.g. Keystore
+            // unavailable) the exception propagates and the screen stays
+            // disconnected.
+            secretStore.put("openrouter_key", key)
+            connected = true
+            errorMessage = null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorMessage = "Connection failed: ${e.message ?: "unknown error"}"
         }
     }
 
@@ -81,16 +122,46 @@ fun ConnectFlow(
         if (connected) {
             Text("✓ Connected to OpenRouter")
         } else {
-            // ── primary path: open browser with scheme callback ──────────────
-            Button(onClick = {
-                val url = authUrl(callback = "clanker://oauth", challenge = pkce.challenge)
-                try {
-                    uriHandler.openUri(url)
-                } catch (_: Exception) {
-                    // openUri is best-effort; if it fails the paste path still works
-                }
-            }) {
+            // ── primary path: open browser, capture the code automatically ──
+            Button(
+                onClick = {
+                    authJob = scope.launch {
+                        waitingForAuth = true
+                        try {
+                            val code = launcher.awaitAuthCode(pkce, openUriSafely)
+                            if (code != null) {
+                                connect(code)
+                            }
+                        } catch (e: TimeoutCancellationException) {
+                            errorMessage =
+                                "Authorization timed out — paste the code shown by OpenRouter below."
+                        } catch (e: CancellationException) {
+                            // user cancelled — fall back to the paste path
+                        } catch (e: Exception) {
+                            errorMessage =
+                                "Authorization failed: ${e.message ?: "unknown error"}"
+                        } finally {
+                            waitingForAuth = false
+                        }
+                    }
+                },
+                enabled = !waitingForAuth,
+            ) {
                 Text("Authorize in Browser")
+            }
+
+            if (waitingForAuth) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Waiting for authorization…",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = { authJob?.cancel() }) {
+                        Text("Cancel")
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -122,24 +193,7 @@ fun ConnectFlow(
 
             Button(
                 onClick = {
-                    scope.launch {
-                        try {
-                            val key = exchangeKey(
-                                code = codeInput.trim(),
-                                verifier = pkce.verifier,
-                                httpClient = httpClient,
-                            )
-                            // put() overwrites any stale key so re-connect always stores
-                            // the fresh key.  Fail-closed: if put throws (e.g. Keystore
-                            // unavailable) the exception propagates and the screen stays
-                            // disconnected.
-                            secretStore.put("openrouter_key", key)
-                            connected = true
-                            errorMessage = null
-                        } catch (e: Exception) {
-                            errorMessage = "Connection failed: ${e.message ?: "unknown error"}"
-                        }
-                    }
+                    scope.launch { connect(codeInput) }
                 },
                 enabled = codeInput.isNotBlank(),
             ) {

@@ -24,6 +24,12 @@ jobs:
       - name: Run JVM tests
         run: ./gradlew :shared:jvmTest
 
+      # Kotlin/Native cross-compiles from Linux; this gate exists because the
+      # ledger already records one iOS-visible regression (8818dc9) that
+      # JVM/Android-only CI missed.
+      - name: Compile iOS targets
+        run: ./gradlew :shared:compileKotlinIosSimulatorArm64 :composeApp:compileKotlinIosSimulatorArm64
+
       - name: Assemble debug APK
         run: ./gradlew :composeApp:assembleDebug
 
