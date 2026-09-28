@@ -27,6 +27,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -77,6 +78,12 @@ fun ChatScreen(
             model = decodedSettings.model ?: "",
             chatSettings = decodedSettings.settings,
         )
+    }
+    // Leaving the chat cancels any in-flight stream and releases keep-awake;
+    // otherwise the ViewModel's self-owned scope keeps the stream alive and a
+    // re-entry can start a second concurrent stream on the same conversation.
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.cancel() }
     }
     val toolSettings by viewModel.toolSettings.collectAsState()
     var toolsExpanded by rememberSaveable { mutableStateOf(false) }
@@ -274,7 +281,14 @@ private fun SpendControls(
             modifier = Modifier.weight(1f),
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Guardrails", style = MaterialTheme.typography.labelSmall)
+            Column(modifier = Modifier.weight(1f, fill = false)) {
+                Text("Guardrails", style = MaterialTheme.typography.labelSmall)
+                Text(
+                    "Enforced in your OpenRouter dashboard (account-level); no per-request field exists.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Switch(checked = settings.guardrailsEnabled, onCheckedChange = onGuardrailsChanged)
         }
     }
